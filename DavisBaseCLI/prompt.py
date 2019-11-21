@@ -32,6 +32,7 @@ def splashScreen():
     print("\nType \"help;\" to display supported commands.")
     print("-" * 80)
 
+
 # Method to parse table name, column names and values to be updated and condition1, operator and condition2
 def parseUpdate(commandTokens):
     tableName = commandTokens[1]
@@ -50,6 +51,7 @@ def parseUpdate(commandTokens):
     operator = commandTokens[-2]
     condition2 = commandTokens[-1]
     updateAction(updateValuesDictionary, tableName, condition1, operator, condition2)
+
 
 # Stub method to perform update action. Data to be updated is stored as key / value pairs
 # Key refers to the column name and value refer to the updated value for that particular column
@@ -119,7 +121,7 @@ def parseUserCommand(queryString):
     # DML Cases
     if commandType == SELECT:
         print("select path")
-        commandTokens = queryString.replace(", ", ",").split(" ")
+        commandTokens = queryString.replace(", ", ",").replace(";", "").split(" ")
         parseSelect(commandTokens)
     elif commandType == UPDATE:
         print("update path")
