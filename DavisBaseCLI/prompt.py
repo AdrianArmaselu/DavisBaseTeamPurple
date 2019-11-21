@@ -1,3 +1,5 @@
+import re
+
 prompt = "davisql> "
 version = "v1.0"
 isExit = False
@@ -30,7 +32,36 @@ def splashScreen():
     print("\nType \"help;\" to display supported commands.")
     print("-" * 80)
 
+# Method to parse table name, column names and values to be updated and condition1, operator and condition2
+def parseUpdate(commandTokens):
+    tableName = commandTokens[1]
+    updateValuesDictionary = {}
+    isColumnName = True
+    mostRecentColumnName = ""
+    for i in range(3, len(commandTokens) - 4):
+        if commandTokens[i] == "=":
+            continue
+        if isColumnName:
+            mostRecentColumnName = commandTokens[i]
+        else:
+            updateValuesDictionary[mostRecentColumnName] = commandTokens[i]
+        isColumnName = not isColumnName
+    condition1 = commandTokens[-3]
+    operator = commandTokens[-2]
+    condition2 = commandTokens[-1]
+    updateAction(updateValuesDictionary, tableName, condition1, operator, condition2)
 
+# Stub method to perform update action. Data to be updated is stored as key / value pairs
+# Key refers to the column name and value refer to the updated value for that particular column
+def updateAction(updateValuesDictionary, tableName, condition1, operator, condition2):
+    print("Column names: " + str(updateValuesDictionary))
+    print("Table names: " + tableName)
+    print("Condition 1: " + condition1)
+    print("Operator: " + operator)
+    print("Condition 2: " + condition2)
+
+
+# Identifies column names, table name, conditions from the entered query
 def parseSelect(commandTokens):
     condition1 = None
     operator = None
@@ -44,6 +75,8 @@ def parseSelect(commandTokens):
     selectAction(columnNames, tableName, condition1, operator, condition2)
 
 
+# Stub method to perform action based on select command
+# Write your select action here.
 def selectAction(columnNames, tableName, condition1=None, operator=None, condition2=None):
     print("Column names: " + str(columnNames))
     print("Table names: " + tableName)
@@ -80,15 +113,18 @@ def help():
 
 
 # Method to accept user command and determine the command type
-def parseUserCommand(commandTokens):
-    commandType = commandTokens[0]
+def parseUserCommand(queryString):
+    commandType = queryString.split(" ")[0]
     global isExit
     # DML Cases
     if commandType == SELECT:
         print("select path")
+        commandTokens = queryString.replace(", ", ",").split(" ")
         parseSelect(commandTokens)
     elif commandType == UPDATE:
         print("update path")
+        commandTokens = queryString.replace(",", "").replace(";", "").split(" ")
+        parseUpdate(commandTokens)
     elif commandType == INSERT:
         print("insert path")
     elif commandType == DELETE:
@@ -117,8 +153,8 @@ def parseUserCommand(commandTokens):
 def main():
     splashScreen()
     while not isExit:
-        commandTokens = input(prompt).strip().lower().replace(", ", ",").split(" ")
-        parseUserCommand(commandTokens)
+        queryString = input(prompt).strip().lower()
+        parseUserCommand(queryString)
     print("\nExiting...")
 
 
