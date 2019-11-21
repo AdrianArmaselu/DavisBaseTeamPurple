@@ -1,6 +1,25 @@
 prompt = "davisql> "
 version = "v1.0"
 isExit = False
+DEFAULT = "default"
+NOT_NULL = "not null"
+PRIMARY_KEY = "primary key"
+UNIQUE = "unique"
+NA = "na"
+YES = "yes"
+ERROR = "Error occurred. Please check the syntax."
+HISTORY = "history"
+QUIT = "quit"
+EXIT = "exit"
+VERSION = "version"
+HELP = "help"
+SHOW = "show"
+DELETE = "delete"
+DROP = "drop"
+UPDATE = "update"
+INSERT = "insert"
+CREATE = "create"
+SELECT = "select"
 
 
 # Method to display the splash screen
@@ -8,12 +27,12 @@ def splashScreen():
     print("-" * 80)
     print("Welcome to Davisbase")
     print("DavisBaseLite Version " + version)
-    print("\nType \"davisHelp;\" to display supported commands.")
+    print("\nType \"help;\" to display supported commands.")
     print("-" * 80)
 
 
 # Method to display commands supported in Davisbase
-def davisHelp():
+def help():
     print("*" * 80)
     print("SUPPORTED COMMANDS\n")
     print("All commands below are case insensitive\n")
@@ -32,7 +51,7 @@ def davisHelp():
     print("VERSION")
     print("\tDisplay the program version.\n")
     print("HELP")
-    print("\tDisplay this davisHelp information.\n")
+    print("\tDisplay this Help information.\n")
     print("EXIT")
     print("\tExit the program.\n")
     print("*" * 80)
@@ -43,32 +62,32 @@ def parseUserCommand(commandTokens):
     commandType = commandTokens[0]
     global isExit
     # DML Cases
-    if commandType == "select":
+    if commandType == SELECT:
         print("select path")
-    elif commandType == "update":
+    elif commandType == UPDATE:
         print("update path")
-    elif commandType == "insert":
+    elif commandType == INSERT:
         print("insert path")
-    elif commandType == "delete":
+    elif commandType == DELETE:
         print("delete path")
 
     # DDL Cases
-    elif commandType == "create":
+    elif commandType == CREATE:
         print("create path")
-    elif commandType == "drop":
+    elif commandType == DROP:
         print("drop path")
-    elif commandType == "show":
+    elif commandType == SHOW:
         print("show path")
 
     # Miscellaneous commands'
-    elif commandType == "davisHelp":
-        davisHelp()
-    elif commandType == "quit" or commandType == "exit":
+    elif commandType == HELP:
+        help()
+    elif commandType == QUIT or commandType == EXIT:
         isExit = True
 
     # Invalid query
     else:
-        print("Invalid query")
+        print(ERROR)
 
 
 # Entry point of application. Runs until exit or quit command is entered.
