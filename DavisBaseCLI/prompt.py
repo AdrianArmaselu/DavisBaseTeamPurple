@@ -31,6 +31,28 @@ def splashScreen():
     print("-" * 80)
 
 
+def parseSelect(commandTokens):
+    condition1 = None
+    operator = None
+    condition2 = None
+    columnNames = commandTokens[1].split(',')
+    tableName = commandTokens[3]
+    if "where" in commandTokens:
+        condition1 = commandTokens[5]
+        operator = commandTokens[6]
+        condition2 = commandTokens[7]
+    selectAction(columnNames, tableName, condition1, operator, condition2)
+
+
+def selectAction(columnNames, tableName, condition1=None, operator=None, condition2=None):
+    print("Column names: " + str(columnNames))
+    print("Table names: " + tableName)
+    if condition1 and condition2 and operator:
+        print("Condition 1: " + condition1)
+        print("Operator: " + operator)
+        print("Condition 2: " + condition2)
+
+
 # Method to display commands supported in Davisbase
 def help():
     print("*" * 80)
@@ -64,6 +86,7 @@ def parseUserCommand(commandTokens):
     # DML Cases
     if commandType == SELECT:
         print("select path")
+        parseSelect(commandTokens)
     elif commandType == UPDATE:
         print("update path")
     elif commandType == INSERT:
@@ -94,7 +117,7 @@ def parseUserCommand(commandTokens):
 def main():
     splashScreen()
     while not isExit:
-        commandTokens = input(prompt).strip().lower().split(" ")
+        commandTokens = input(prompt).strip().lower().replace(", ", ",").split(" ")
         parseUserCommand(commandTokens)
     print("\nExiting...")
 
