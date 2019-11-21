@@ -33,6 +33,29 @@ def splashScreen():
     print("-" * 80)
 
 
+# Method to parse table name, condition1, operator and condition2
+def parseDelete(commandTokens):
+    condition1 = None
+    operator = None
+    condition2 = None
+    tableName = commandTokens[3]
+    if "where" in commandTokens:
+        condition1 = commandTokens[-3]
+        operator = commandTokens[-2]
+        condition2 = commandTokens[-1]
+    deleteAction(tableName, condition1, operator, condition2)
+
+
+# Stub method to perform delete action.
+# Use the given tableName, condition1, operator and condition2 to identify and delete records from the table
+def deleteAction(tableName, condition1=None, operator=None, condition2=None):
+    print("Table name: " + tableName)
+    if condition1 and condition2 and operator:
+        print("Condition 1: " + condition1)
+        print("Operator: " + operator)
+        print("Condition 2: " + condition2)
+
+
 # Method to parse table name, column names and values to be updated and condition1, operator and condition2
 def parseUpdate(commandTokens):
     tableName = commandTokens[1]
@@ -130,6 +153,8 @@ def parseUserCommand(queryString):
     elif commandType == INSERT:
         print("insert path")
     elif commandType == DELETE:
+        commandTokens = queryString.replace(";", "").split(" ")
+        parseDelete(commandTokens)
         print("delete path")
 
     # DDL Cases
