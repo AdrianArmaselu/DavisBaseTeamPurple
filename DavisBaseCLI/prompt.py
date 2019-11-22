@@ -33,6 +33,23 @@ def splashScreen():
     print("-" * 80)
 
 
+# Method to parse table name, list of columns and values to be inserted for those columns
+def parseInsert(commandTokens):
+    columnList = commandTokens[3].split(",")
+    tableName = commandTokens[4]
+    valueList = commandTokens[-1].split(",")
+    columnValueMap = {}
+    for i in range(len(columnList)):
+        columnValueMap[columnList[i]] = valueList[i]
+    insertHandler(tableName, columnValueMap)
+
+
+# Stub method to handle the actions of insert based on table name and column value mapping
+def insertHandler(tableName, columnValueMap):
+    print("Table name: " + tableName)
+    print("Column value dictionary: " + str(columnValueMap))
+
+
 # Method to parse table name, condition1, operator and condition2
 def parseDelete(commandTokens):
     condition1 = None
@@ -43,12 +60,12 @@ def parseDelete(commandTokens):
         condition1 = commandTokens[-3]
         operator = commandTokens[-2]
         condition2 = commandTokens[-1]
-    deleteAction(tableName, condition1, operator, condition2)
+    deleteHandler(tableName, condition1, operator, condition2)
 
 
 # Stub method to perform delete action.
 # Use the given tableName, condition1, operator and condition2 to identify and delete records from the table
-def deleteAction(tableName, condition1=None, operator=None, condition2=None):
+def deleteHandler(tableName, condition1=None, operator=None, condition2=None):
     print("Table name: " + tableName)
     if condition1 and condition2 and operator:
         print("Condition 1: " + condition1)
@@ -73,12 +90,12 @@ def parseUpdate(commandTokens):
     condition1 = commandTokens[-3]
     operator = commandTokens[-2]
     condition2 = commandTokens[-1]
-    updateAction(updateValuesDictionary, tableName, condition1, operator, condition2)
+    updateHandler(updateValuesDictionary, tableName, condition1, operator, condition2)
 
 
 # Stub method to perform update action. Data to be updated is stored as key / value pairs
 # Key refers to the column name and value refer to the updated value for that particular column
-def updateAction(updateValuesDictionary, tableName, condition1, operator, condition2):
+def updateHandler(updateValuesDictionary, tableName, condition1, operator, condition2):
     print("Column names: " + str(updateValuesDictionary))
     print("Table names: " + tableName)
     print("Condition 1: " + condition1)
@@ -97,12 +114,12 @@ def parseSelect(commandTokens):
         condition1 = commandTokens[5]
         operator = commandTokens[6]
         condition2 = commandTokens[7]
-    selectAction(columnNames, tableName, condition1, operator, condition2)
+    selectHandler(columnNames, tableName, condition1, operator, condition2)
 
 
 # Stub method to perform action based on select command
 # Write your select action here.
-def selectAction(columnNames, tableName, condition1=None, operator=None, condition2=None):
+def selectHandler(columnNames, tableName, condition1=None, operator=None, condition2=None):
     print("Column names: " + str(columnNames))
     print("Table names: " + tableName)
     if condition1 and condition2 and operator:
@@ -151,6 +168,8 @@ def parseUserCommand(queryString):
         commandTokens = queryString.replace(",", "").replace(";", "").split(" ")
         parseUpdate(commandTokens)
     elif commandType == INSERT:
+        commandTokens = queryString.replace(", ", ",").replace(";", "").replace("(", "").replace(")", "").split(" ")
+        parseInsert(commandTokens)
         print("insert path")
     elif commandType == DELETE:
         commandTokens = queryString.replace(";", "").split(" ")
