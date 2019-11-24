@@ -22,6 +22,8 @@ UPDATE = "update"
 INSERT = "insert"
 CREATE = "create"
 SELECT = "select"
+TABLE = "table"
+INDEX = "index"
 
 
 # Method to display the splash screen
@@ -31,6 +33,25 @@ def splashScreen():
     print("DavisBaseLite Version " + version)
     print("\nType \"help;\" to display supported commands.")
     print("-" * 80)
+
+
+# Method to parse table name and column information such as its datatype, constraints from the query
+def parseCreateTable(tableName, columnInformationString):
+    print("Table name: " + tableName)
+    parsedColumnInfoList = []
+    for columnInfo in columnInformationString:
+        parsedColumnInfoMap = {"columnName": None, "dataType": None, "isUnique": False,
+                               "isNotNull": False, "isPrimaryKey": False}
+        if "unique" in columnInfo:
+            parsedColumnInfoMap["isUnique"] = True
+        if "primary" in columnInfo:
+            parsedColumnInfoMap["isPrimaryKey"] = True
+        if "not null" in columnInfo:
+            parsedColumnInfoMap["isNotNull"] = True
+        parsedColumnInfoMap["columnName"] = columnInfo.split(" ")[0]
+        parsedColumnInfoMap["dataType"] = columnInfo.split(" ")[1]
+        parsedColumnInfoList.append(parsedColumnInfoMap)
+    print(str(parsedColumnInfoList))
 
 
 # Method to parse table name, list of columns and values to be inserted for those columns
@@ -138,6 +159,11 @@ def showTablesHandler():
     print("Show table handler")
 
 
+# Method to create index based on table name
+def createIndexHandler(tableName):
+    print("Create Index Table Name: " + tableName)
+
+
 # Method to display commands supported in Davisbase
 def help():
     print("*" * 80)
@@ -189,6 +215,16 @@ def parseUserCommand(queryString):
     # DDL Cases
     elif commandType == CREATE:
         print("create path")
+        createType = queryString.split(" ")[1]
+        if createType == TABLE:
+            tableName = queryString.replace(";", "").split(" ")[2]
+            columnInformationString = re.findall('\(([^)]+)', queryString)[0].split(", ")
+            parseCreateTable(tableName, columnInformationString)
+        elif createType == INDEX:
+            tableName = queryString.replace(";", "").split(" ")[-1]
+            createIndexHandler(tableName)
+        else:
+            print(ERROR)
     elif commandType == DROP:
         print("drop path")
         tableToBeDropped = queryString.replace(";", "").split(" ")[-1]
