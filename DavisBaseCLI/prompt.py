@@ -128,6 +128,16 @@ def selectHandler(columnNames, tableName, condition1=None, operator=None, condit
         print("Condition 2: " + condition2)
 
 
+# Perform actions to drop a table, given its name.
+def dropTableHandler(tableToBeDropped):
+    print("Table Name: " + tableToBeDropped)
+
+
+# Display all tables present in Davisbase
+def showTablesHandler():
+    print("Show table handler")
+
+
 # Method to display commands supported in Davisbase
 def help():
     print("*" * 80)
@@ -181,8 +191,11 @@ def parseUserCommand(queryString):
         print("create path")
     elif commandType == DROP:
         print("drop path")
+        tableToBeDropped = queryString.replace(";", "").split(" ")[-1]
+        dropTableHandler(tableToBeDropped)
     elif commandType == SHOW:
         print("show path")
+        showTablesHandler()
 
     # Miscellaneous commands'
     elif commandType == HELP:
