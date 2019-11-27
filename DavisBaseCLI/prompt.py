@@ -57,18 +57,16 @@ def parseCreateTable(tableName, columnInformationString):
 # Method to parse table name, list of columns and values to be inserted for those columns
 def parseInsert(commandTokens):
     columnList = commandTokens[3].split(",")
-    tableName = commandTokens[4]
+    tableName = commandTokens[2]
     valueList = commandTokens[-1].split(",")
-    columnValueMap = {}
-    for i in range(len(columnList)):
-        columnValueMap[columnList[i]] = valueList[i]
-    insertHandler(tableName, columnValueMap)
+    insertHandler(tableName, valueList, columnList)
 
 
 # Stub method to handle the actions of insert based on table name and column value mapping
-def insertHandler(tableName, columnValueMap):
+def insertHandler(tableName, valueList, columnList=None ):
     print("Table name: " + tableName)
-    print("Column value dictionary: " + str(columnValueMap))
+    print("Value list: " + str(valueList))
+    print("Column list: " + str(columnList))
 
 
 # Method to parse table name, condition1, operator and condition2
