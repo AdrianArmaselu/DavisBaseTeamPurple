@@ -18,18 +18,22 @@ class Table(Page):
         self.struct_format_string = {"null": "x", "tinyint": 'b', "smallint": 'h', "int": 'i',
                                      "bigint": "q", "long": "q", "float": "f", "double": "d", "year": "H", "time": "i",
                                      "datatime": "Q", "date": "Q"}
+        self.accepted_operator = ["=", ">", ">=", "<", "<=", "<>"]
 
     # Create a table if the table already didn't exists
     def create_table(self, table_name):
         self.__init__(table_name)
         print(self.data_dir)
-        if not os.path.isdir(self.data_dir):
-            os.makedirs(self.table_dir)
-        else:
-            os.mkdir(self.table_dir)
-        with open(self.table_file_path, 'wb') as f:
-            print(self.table_file_path + " is created")
-            return self.table_file_path
+        try:
+            if not os.path.isdir(self.data_dir):
+                os.makedirs(self.table_dir)
+            else:
+                os.mkdir(self.table_dir)
+            with open(self.table_file_path, 'wb') as f:
+                print(self.table_name + " table is created")
+                return self.table_file_path
+        except FileExistsError:
+            print("Table already exists..You cannot create the same table again!")
 
     # Check if the tale exist in the database already by checking the catalog
     def check_if_table_exists(self, table_path):
@@ -70,84 +74,253 @@ class Table(Page):
         self.__init__(table_name)
         table_exists = self.check_if_table_exists(self.table_file_path)
         if not table_exists:
-            print(self.table_name + " is not exists in the DavisBase...Please check the table name")
+            print(self.table_name + " is not exists in the DavisBase...Please create a table first")
+            return False
         print("Table is existing")
         root_node = self.get_root_node(self.table_file_path)
         print("returned root node is", root_node)
-        record_payload = self.calculate_payload_size(values)
+        record_payload = self.calculate_payload_size([0] + values)
         # check the number of pages in the table
         if record_payload > 512:
             print("Record size is greater than 512 bytes..Cannot accommodate the record in the table")
         # Checking if the left-leaf node exists
-        page_number = root_node[-2]
+        page_number = root_node[-3]
+        page_total_record = root_node[-2]
         page_last_rowid = root_node[-1]
+        print("total records in page", page_total_record)
         print("the page number is {0} and row is is {1}".format(str(page_number), str(page_last_rowid)))
-        col_dtype, col_constraint = self.scheme_dtype_constraint()
+        col_dtype, col_constraint, column_names = self.scheme_dtype_constraint()
         insert_success = False
-        if len(root_node) == 2:
-            if page_last_rowid == 0 and record_payload < 512:
-                row_id = 1
-                record = self.string_encoding([row_id] + values)
-                page_offset = page_number * 512 + 1
-                print("record is", record)
+        if page_last_rowid == 0 and record_payload < 512:
+            row_id = 1
+            record = self.string_encoding([row_id] + values)
+            page_offset = page_number * self.page_size + 1
+            print("record is", record)
+            fstring = self.values_to_fstring(col_dtype, record)
+            print("Creating new record", page_number, page_offset, record, fstring)
+            insert_success = self.write_to_page(self.table_file_path, page_number, page_offset, record, fstring,
+                                                record_payload)
+            if insert_success:
+                root_node_len = len(root_node)
+                if root_node_len == 3:
+                    root_offset = 0
+                self.update_root_node(self.table_file_path, [page_number, page_total_record + 1, row_id], root_offset)
+        else:
+            page_filled_size = self.check_page_size(self.table_file_path, page_number)
+            print("Filled Page size", page_filled_size)
+            page_size_availability = self.page_size - page_filled_size
+            print("Page size availability", page_size_availability)
+            if record_payload <= page_size_availability:
+                page_offset = (page_filled_size + 1) + page_number * self.page_size
+                record = self.string_encoding([page_last_rowid + 1] + values)
                 fstring = self.values_to_fstring(col_dtype, record)
                 print("Creating new record", page_number, page_offset, record, fstring)
                 insert_success = self.write_to_page(self.table_file_path, page_number, page_offset, record, fstring,
                                                     record_payload)
                 if insert_success:
-                    self.update_root_node(self.table_file_path, [page_number, row_id])
+                    root_node_len = len(root_node)
+                    if root_node_len == 3:
+                        root_offset = 0
+                    else:
+                        root_offset = ((root_node_len // 3) - 1) * 12
+                    self.update_root_node(self.table_file_path,
+                                          [page_number, page_total_record + 1, page_last_rowid + 1], root_offset)
             else:
-                page_filled_size = self.check_page_size(self.table_file_path, page_number)
-                print("Filled Page size", page_filled_size)
-                page_size_availability = self.page_size - page_filled_size
-                print("Page size availability", page_size_availability)
-                if record_payload <= page_size_availability:
-                    page_offset = (page_filled_size + 1) + page_number * 512
-                    record = self.string_encoding([page_last_rowid + 1] + values)
-                    fstring = self.values_to_fstring(col_dtype, record)
-                    print("Creating new record", page_number, page_offset, record, fstring)
-                    insert_success = self.write_to_page(self.table_file_path, page_number, page_offset, record, fstring,
-                                                        record_payload)
-                    if insert_success:
-                        self.update_root_node(self.table_file_path, [page_number, page_last_rowid + 1])
-                else:
-                    print("Creating new page")
-                    new_page_number = page_number + 1
-                    new_page_rowid = page_last_rowid + 1
-                    print("the new page no and rowid", new_page_number, new_page_rowid)
-                    page_offset = new_page_number * 512 + 1
-                    record = self.string_encoding([new_page_rowid] + values)
-                    fstring = self.values_to_fstring(col_dtype, record)
-                    print("Creating new record", page_number, page_offset, record, fstring)
-                    insert_success = self.write_to_page(self.table_file_path, new_page_number, page_offset, record,
-                                                        fstring, record_payload)
-                    if insert_success:
-                        self.update_root_node(self.table_file_path, [new_page_number, new_page_rowid])
+                print("Creating new page")
+                new_page_number = page_number + 1
+                new_page_rowid = page_last_rowid + 1
+                print("the new page no and rowid", new_page_number, new_page_rowid)
+                page_offset = new_page_number * self.page_size + 1
+                record = self.string_encoding([new_page_rowid] + values)
+                fstring = self.values_to_fstring(col_dtype, record)
+                print("Creating new record", page_number, page_offset, record, fstring)
+                insert_success = self.write_to_page(self.table_file_path, new_page_number, page_offset, record,
+                                                    fstring, record_payload)
+                if insert_success:
+                    root_node_len = len(root_node)
+                    if root_node_len == 3:
+                        root_offset = 0
+                    else:
+                        root_offset = (root_node_len // 3) * 12
+                    self.update_root_node(self.table_file_path,
+                                          [new_page_number, page_total_record + 1, new_page_rowid], root_offset)
         if insert_success:
             print("Record has been successfully added")
+            return True
         else:
             print("Error occurred while adding new record")
+            return False
 
     def traverse_tree(self, table_name):
         self.__init__(table_name)
-        col_dtype, col_constraint = self.scheme_dtype_constraint()
+
         table_exists = self.check_if_table_exists(self.table_file_path)
         if not table_exists:
             print(self.table_name + " is not exists in the DavisBase...Please check the table name")
+            return False
         print("Table is existing")
-        col_dtype, col_constraint = self.scheme_dtype_constraint()
+        col_dtype, col_constraint, column_names = self.scheme_dtype_constraint()
         s_fstring = self.schema_to_fstring(col_dtype)
         root_node = self.get_root_node(self.table_file_path)
         page_records = []
-        for page_no in range(0, len(root_node), 2):
-            page_records.append(self.read_page(self.table_file_path, col_dtype, page_no, s_fstring))
-        print(page_records)
+        print(root_node)
+
+        for page_no in range(0, len(root_node), 3):
+            print("hello")
+            print("for the page number", root_node[page_no], col_dtype, s_fstring)
+            print("the number of records in the page is", root_node[page_no + 1])
+            ret_val, record_val = self.read_page(self.table_file_path, col_dtype, int(root_node[page_no]), s_fstring,
+                                                 root_node[page_no + 1])
+            print("hello", record_val)
+            if ret_val:
+                page_records += record_val
+            else:
+                print("Error while traversing through Tree")
+                break
+        print("All the records in the page", page_records)
+        return page_records
+
+    def delete_record(self, table_name, column, operator, value, is_not=False):
+        self.__init__(table_name)
+        table_exists = self.check_if_table_exists(self.table_file_path)
+        if not table_exists:
+            print(self.table_name + " is not exists in the DavisBase...Please check the table name")
+            return False
+        print("Table is existing")
+        col_dtype, col_constraint, column_names = self.scheme_dtype_constraint()
+        if column not in column_names:
+            return False
+        if operator not in self.accepted_operator:
+            return False
+        column_index = column_names.index(column)
+        s_fstring = self.schema_to_fstring(col_dtype)
+        root_node = self.get_root_node(self.table_file_path)
+        page_records = []
+        print(root_node)
+        deleted_records = []
+        for page_no in range(0, len(root_node), 3):
+            page_number = root_node[page_no]
+            page_total_recs = root_node[page_no + 1]
+            page_last_rid = root_node[page_no + 2]
+            print("for the page number", page_number, col_dtype, s_fstring)
+            print("the number of records in the page is", page_total_recs)
+            ret_val, record_val = self.read_page(self.table_file_path, col_dtype, int(page_number), s_fstring,
+                                                 page_total_recs)
+            print("the val and record", ret_val, record_val, len(record_val))
+            if ret_val:
+                new_page_records = []
+                for rec in range(0, len(record_val)):
+                    print("the for loop", rec, record_val[rec], record_val[rec][column_index])
+                    if operator == "=":
+                        if is_not:
+                            if not record_val[column_index] == value:
+                                deleted_records.append(record_val[rec])
+                            else:
+                                new_page_records.append(record_val[rec])
+                        else:
+                            if record_val[column_index] == value:
+                                deleted_records.append(record_val[rec])
+                            else:
+                                new_page_records.append(record_val[rec])
+                    if operator == ">":
+                        if is_not:
+                            if not record_val[column_index] > value:
+                                deleted_records.append(record_val[rec])
+                            else:
+                                new_page_records.append(record_val[rec])
+                        else:
+                            if record_val[column_index] > value:
+                                deleted_records.append(record_val[rec])
+                            else:
+                                new_page_records.append(record_val[rec])
+                    if operator == ">=":
+                        if is_not:
+                            if not record_val[rec][column_index] >= value:
+                                deleted_records.append(record_val[rec])
+                            else:
+                                new_page_records.append(record_val[rec])
+                        else:
+                            if record_val[rec][column_index] >= value:
+                                deleted_records.append(record_val[rec])
+                            else:
+                                new_page_records.append(record_val[rec])
+                    if operator == "<":
+                        if is_not:
+                            if not record_val[column_index] < value:
+                                deleted_records.append(record_val[rec])
+                            else:
+                                new_page_records.append(record_val[rec])
+                        else:
+                            if record_val[column_index] < value:
+                                deleted_records.append(record_val[rec])
+                            else:
+                                new_page_records.append(record_val[rec])
+                    if operator == "<=":
+                        if is_not:
+                            if not record_val[column_index] <= value:
+                                deleted_records.append(record_val[rec])
+                            else:
+                                new_page_records.append(record_val[rec])
+                        else:
+                            if record_val[column_index] <= value:
+                                deleted_records.append(record_val[rec])
+                            else:
+                                new_page_records.append(record_val[rec])
+                    if operator == "<>":
+                        if is_not:
+                            if not record_val[column_index] != value:
+                                deleted_records.append(record_val[rec])
+                            else:
+                                new_page_records.append(record_val[rec])
+                        else:
+                            if record_val[column_index] > value:
+                                deleted_records.append(record_val[rec])
+                            else:
+                                new_page_records.append(record_val[rec])
+            else:
+                print("Error while traversing through Tree")
+                break
+            print("new page records", new_page_records)
+            print("deleted records", deleted_records)
+            if len(deleted_records) > 0:
+                self.page_clean_bytes(self.table_file_path, page_number)
+                page_offset = page_number * self.page_size + 1
+                for record in new_page_records:
+
+                    for val in range(0,len(record)):
+                        if isinstance(record[val], str):
+                            record[val] = (record[val] + ">x")
+                    record = self.string_encoding(record)
+                    fstring = self.values_to_fstring(col_dtype, record)
+                    record_payload = self.calculate_payload_size(record)
+                    print("hey the record", record)
+                    print("the fstring is ",col_dtype,record)
+                    print("the record and payload", record, fstring, record_payload)
+                    print("wrting to page", page_number, page_offset, record, fstring, record_payload)
+                    insert_success = self.write_to_page(self.table_file_path, page_number, page_offset, record, fstring,
+                                                        record_payload)
+                if insert_success:
+                    root_node_len = len(root_node)
+                    if root_node_len == 3:
+                        root_offset = 0
+                    else:
+                        root_offset = (page_no // 3) * 12
+                    page_total_recs = len(new_page_records)
+                    print("updaing the root node",page_number, page_total_recs, page_last_rid,root_offset)
+                    self.update_root_node(self.table_file_path, [page_number, page_total_recs, page_last_rid],
+                                          root_offset)
+                else:
+                    print("Error while writing into page")
+            else:
+                print("no change in this page")
+            print("deleted records", deleted_records)
+        return True
 
     def calculate_payload_size(self, values):
         self.table_desc = {"col1": {"datatype": "int", "constraints": "pri:not null"},
                            "col2": {"datatype": "int", "constraints": "not null"},
-                           "col2": {"datatype": "text", "constraints": "not null"},
-                           "col3": {"datatype": "int", "constraints": ""}}
+                           "col3": {"datatype": "text", "constraints": "not null"},
+                           "col4": {"datatype": "int", "constraints": ""}}
         # table_desc = self.table_dtype_constraint()
         dtype_bytes = []
         for index, (col, col_cons) in enumerate(self.table_desc.items()):
@@ -155,8 +328,9 @@ class Table(Page):
                 dtype_bytes.append(self.dtype_bytes[col_cons["datatype"]])
 
             if col_cons["datatype"] == "text":
+                # print("in payload", values[index], values)
                 dtype_bytes.append(len(values[index]))
-        print(dtype_bytes)
+        # print(dtype_bytes)
         payload_size = sum(dtype_bytes)
         print("Payload size is", payload_size)
         return payload_size
@@ -169,20 +343,24 @@ class Table(Page):
                            "col4": {"datatype": "float", "constraints": ""}}
         self.table_constraints = []
         self.table_dtypes = []
+        self.column_names = []
         for (col, col_cons) in self.table_desc.items():
             self.table_dtypes.append(col_cons["datatype"])
             self.table_constraints.append(col_cons["constraints"])
-        return self.table_dtypes, self.table_constraints
+            self.column_names.append(col)
+        return self.table_dtypes, self.table_constraints, self.column_names
 
 
 Table = Table("sample")
-# Table.create_table("sample")
-
-
-# Table.insert_into_table("sample", [121, "kavin", 100])
-# Table.insert_into_table("sample", [122, "abcdeafghijk", 99])
-# Table.insert_into_table("sample", [123, "kuppusamy", 88.5])
-# Table.insert_into_table("sample", [124, "ha", 40])
-
+Table.create_table("sample")
+Table.insert_into_table("sample", [121, "kavin>x", 100])
+Table.insert_into_table("sample", [122, "abcdeafghijk>x", 99])
+Table.insert_into_table("sample", [123, "kuppusamy>x", 88.5])
+Table.insert_into_table("sample", [124, "ha>x", 40])
 Table.traverse_tree("sample")
-# print(Table.calculate_payload_size([1, "kavin", 100]))
+column = "col2"
+operator = ">="
+value = 124
+is_not = True
+Table.delete_record("sample", column, operator, value, is_not)
+Table.traverse_tree("sample")
