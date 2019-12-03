@@ -45,7 +45,7 @@ class Page:
 
         with open(table_file_path, "r+b") as fh:
             page_offset = start_byte
-            print("printing to the page at offset",page_offset)
+            #print("printing to the page at offset",page_offset)
             fh.seek(page_offset, 0)
             record = struct.pack(fstring, *record_values)
             fh.write(record)
@@ -54,7 +54,7 @@ class Page:
 
     def page_clean_bytes(self, table_file_path, page_no):
         page_offset = page_no * self.page_size
-        print("Im cleaning the page using offset", page_offset)
+        #print("Im cleaning the page using offset", page_offset)
         with open(table_file_path, "r+b") as fh:
             fh.seek(page_offset, 0)
             print("Cleaning the page",page_no)
@@ -78,7 +78,7 @@ class Page:
                     if f_str != "s":
                         rec_value = fh.read(read_bytes)
                         record.append(struct.unpack(f_str, rec_value)[0])
-                        print("the record is",record)
+                        #print("the record is",record)
                     else:
                         counter = 0
                         read_bytes = fstring_value[f_str]
@@ -116,7 +116,7 @@ class Page:
     def update_root_node(self, table_file_path, updated_root,root_offset):
         with open(table_file_path, "r+b") as fh:
             fh.seek(root_offset, 0)
-            print("updating the root offset", root_offset)
+            #print("updating the root offset", root_offset)
             root_node_size = len(updated_root)
             root_node = struct.pack('i' * root_node_size, *updated_root)
             fh.write(root_node)
