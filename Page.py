@@ -32,7 +32,7 @@ class Page:
     def check_page_size(self, table_file_path, page_number):
 
         with open(table_file_path, 'rb') as f:
-            f.seek(page_number * self.page_size + 1, 0)
+            f.seek((page_number * self.page_size), 0)
             page_size = 0
             while page_size < 512:
                 bytes1 = f.read(1)
@@ -45,6 +45,7 @@ class Page:
 
         with open(table_file_path, "r+b") as fh:
             page_offset = start_byte
+            print("printing to the page at offset",page_offset)
             fh.seek(page_offset, 0)
             record = struct.pack(fstring, *record_values)
             fh.write(record)
@@ -52,19 +53,20 @@ class Page:
         return False
 
     def page_clean_bytes(self, table_file_path, page_no):
-        page_offset = page_no * self.page_size + 1
+        page_offset = page_no * self.page_size
+        print("Im cleaning the page using offset", page_offset)
         with open(table_file_path, "r+b") as fh:
             fh.seek(page_offset, 0)
             print("Cleaning the page",page_no)
             for i in range(0, self.page_size):
-                fh.write(b"\x00")
+                fh.write(b'0')
         return True
 
     def read_page(self, table_file_path, column_dtype, page_number, record_fstring, no_of_records):
         fstring_value = {"x": 0, "h": 2, "i": 4, "q": 8, "f": 4, "d": 8, "Q": 8, "B": 1, "b": 1, "H": 2, "s": 1}
 
         with open(table_file_path, 'rb') as fh:
-            page_offset = page_number * self.page_size + 1
+            page_offset = page_number * self.page_size
             page_end = page_offset + self.page_size
             page_records = []
             for i in range(0, no_of_records):
@@ -86,7 +88,7 @@ class Page:
                             if fh.read(2) != b'>x':
                                 fh.seek(text_pg_offset, 0)
                                 text_val += (struct.unpack(f_str, fh.read(read_bytes))[0]).decode("utf-8")
-                                print("tex_val is", text_val)
+                                #print("tex_val is", text_val)
                                 text_pg_offset += 1
                                 counter += 1
                             else:
@@ -114,6 +116,7 @@ class Page:
     def update_root_node(self, table_file_path, updated_root,root_offset):
         with open(table_file_path, "r+b") as fh:
             fh.seek(root_offset, 0)
+            print("updating the root offset", root_offset)
             root_node_size = len(updated_root)
             root_node = struct.pack('i' * root_node_size, *updated_root)
             fh.write(root_node)
