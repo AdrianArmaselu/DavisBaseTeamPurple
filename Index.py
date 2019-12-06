@@ -1,34 +1,12 @@
 import bisect
-import itertools
-import operator
 import os
+import pickle
 
 
 page_size = 512
 
-
-### INITIAL COMMIT IS NOT THE CORRECT VERSION
-
-# def write_to_file(tree, table_name):
-#     file = os.path.join(table_name + '.ndx')
-#     f = open(file, "w")
-#     f.write(str(tree))
-#     f.close()
-#     return
-
-# def read_file(table_name):
-#     file = os.path.join(table_name + '.ndx')
-#     f = open(file, "r")
-#     data = f.read()
-#     f.close()
-#     print(data)
-#     return data
-
-class Index(Page):
-    def create_index():
-
-class _BNode(object):
-    __slots__ = ["tree", "value", "children"]
+class _NodeInTree(object):
+    __buckets__ = ["tree", "value", "children"]
 
     def __init__(self, tree, value=None, children=None):
         self.tree = tree
@@ -36,18 +14,15 @@ class _BNode(object):
       
         self.children = children or []
         if self.children:
-            assert len(self.value) + 1 == len(self.children),
-                    "one more child than data item required"
+            assert len(self.value) + 1 == len(self.children)
 
     def __repr__(self):
         name = getattr(self, "children", 0) and "Branch" or "Leaf"
         return "<%s %s>" % (name, ", ".join(map(str, self.value)))
 
     def lateral(self, parent, parent_ind, dest, dest_ind):
-        print('lateral')
         if parent_ind > dest_ind:
             dest.value.append(parent.value[dest_ind])
-            parent.value[dest_ind] = self.value.pop(0)
             if self.children:
                 dest.children.append(self.children.pop(0))
         else:
@@ -56,11 +31,10 @@ class _BNode(object):
             if self.children:
                 dest.children.insert(0, self.children.pop())
 
-    def shrink(self, ancestors):
+    def contract(self, predecessor):
         parent = None
-        print('shrink')
-        if ancestors:
-            parent, parent_ind = ancestors.pop()
+        if predecessor:
+            parent, parent_ind = predecessor.pop()
             # try to lend to the left neighboring sibling
             if parent_ind:
                 left_sib = parent.children[parent_ind - 1]
@@ -89,25 +63,24 @@ class _BNode(object):
         parent.value.insert(parent_ind, push)
         parent.children.insert(parent_ind + 1, sibling)
         if len(parent.value) > parent.tree.order:
-            parent.shrink(ancestors)
+            parent.contract(predecessor)
 
-    def grow(self, ancestors):
-        parent, parent_ind = ancestors.pop()
-        print('grow')
-        minimum = self.tree.order // 2
+    def expand(self, predecessor):
+        parent, parent_ind = predecessor.pop()
+        minm = self.tree.order // 2
         left_sib = right_sib = None
 
         # try to borrow from the right sibling
         if parent_ind + 1 < len(parent.children):
             right_sib = parent.children[parent_ind + 1]
-            if len(right_sib.value) > minimum:
+            if len(right_sib.value) > minm:
                 right_sib.lateral(parent, parent_ind + 1, self, parent_ind)
                 return
 
         # try to borrow from the left sibling
         if parent_ind:
             left_sib = parent.children[parent_ind - 1]
-            if len(left_sib.value) > minimum:
+            if len(left_sib.value) > minm:
                 left_sib.lateral(parent, parent_ind - 1, self, parent_ind)
                 return
 
@@ -127,10 +100,10 @@ class _BNode(object):
             parent.value.pop(parent_ind)
             parent.children.pop(parent_ind + 1)
 
-        if len(parent.value) < minimum:
-            if ancestors:
+        if len(parent.value) < minm:
+            if predecessor:
                 # parent is not the root
-                parent.grow(ancestors)
+                parent.expand(predecessor)
             elif not parent.value:
                 # parent is root, and its now empty
                 self.tree._root = left_sib or self
@@ -146,115 +119,126 @@ class _BNode(object):
         self.children = self.children[:middle + 1]
         return sibling, median
 
-    def insert(self, ind, item, ancestors):
-        self.value.insert(ind, item)
+    def insert(self, ind, element, predecessor):
+        self.value.insert(ind, element)
         if len(self.value) > self.tree.order:
-            self.shrink(ancestors)
+            self.contract(predecessor)
 
-    def remove(self, ind, ancestors):
-        minimum = self.tree.order // 2
+    def remove(self, ind, predecessor):
+        minm = self.tree.order // 2
 
         if self.children:
             # try promoting from the right subtree first,
             # but only if it won't have to resize
-            additional_ancestors = [(self, ind + 1)]
+            add_ancestors = [(self, ind + 1)]
             descendent = self.children[ind + 1]
             while descendent.children:
-                additional_ancestors.append((descendent, 0))
+                add_ancestors.append((descendent, 0))
                 descendent = descendent.children[0]
-            if len(descendent.value) > minimum:
-                ancestors.extend(additional_ancestors)
+            if len(descendent.value) > minm:
+                predecessor.extend(add_ancestors)
                 self.value[ind] = descendent.value[0]
-                descendent.remove(0, ancestors)
+                descendent.remove(0, predecessor)
                 return
 
             # fall back to the left child
-            additional_ancestors = [(self, ind)]
+            add_ancestors = [(self, ind)]
             descendent = self.children[ind]
             while descendent.children:
-                additional_ancestors.append(
+                add_ancestors.append(
                         (descendent, len(descendent.children) - 1))
                 descendent = descendent.children[-1]
-            ancestors.extend(additional_ancestors)
+            predecessor.extend(add_ancestors)
             self.value[ind] = descendent.value[-1]
-            descendent.remove(len(descendent.children) - 1, ancestors)
+            descendent.remove(len(descendent.children) - 1, predecessor)
         else:
             self.value.pop(ind)
-            if len(self.value) < minimum and ancestors:
-                self.grow(ancestors)
+            if len(self.value) < minm and predecessor:
+                self.expand(predecessor)
 
 
 
 
-class BTree(object):
-    BRANCH = LEAF = _BNode
+class Index_Btree(object):
+    BRANCH = LEAF = _NodeInTree
 
     def __init__(self, order):
         self.order = order
         self._root = self._bottom = self.LEAF(self)
 
-    def _path_to(self, item):
-        current = self._root
+    def _path_to(self, element):
+        curr = self._root
         ancestry = []
 
-        while getattr(current, "children", None):
-            ind = bisect.bisect_left(current.value, item)
-            ancestry.append((current, ind))
-            if ind < len(current.value) \
-                    and current.value[ind] == item:
+        while getattr(curr, "children", None):
+            ind = bisect.bisect_left(curr.value, element)
+            ancestry.append((curr, ind))
+            if ind < len(curr.value) \
+                    and curr.value[ind] == element:
                 return ancestry
-            current = current.children[ind]
+            curr = curr.children[ind]
 
-        ind = bisect.bisect_left(current.value, item)
-        ancestry.append((current, ind))
-        present = ind < len(current.value)
-        present = present and current.value[ind] == item
+        ind = bisect.bisect_left(curr.value, element)
+        ancestry.append((curr, ind))
+        present = ind < len(curr.value)
+        present = present and curr.value[ind] == element
 
         return ancestry
 
-    def _current(self, item, ancestors):
-        last, ind = ancestors[-1]
-        return ind < len(last.value) and last.value[ind] == item
+    def _current(self, element, predecessor):
+        last, ind = predecessor[-1]
+        return ind < len(last.value) and last.value[ind] == element
 
-    def insert(self, item):
-        current = self._root
-        ancestors = self._path_to(item)
-        node, ind = ancestors[-1]
+    def insert(self, element, ):
+        curr = self._root
+        predecessor = self._path_to(element)
+        node, ind = predecessor[-1]
         while getattr(node, "children", None):
             node = node.children[ind]
-            ind = bisect.bisect_left(node.value, item)
-            ancestors.append((node, ind))
-        node, ind = ancestors.pop()
-        node.insert(ind, item, ancestors)
+            ind = bisect.bisect_left(node.value, element)
+            predecessor.append((node, ind))
+        node, ind = predecessor.pop()
+        node.insert(ind, element, predecessor)
 
-    def remove(self, item):
-        current = self._root
-        ancestors = self._path_to(item)
+    def search(self, element):
+        curr = self._root
+        if element in dict(self):
+            return dict(self)[element]
+        return None
 
-        if self._current(item, ancestors):
-            node, ind = ancestors.pop()
-            node.remove(ind, ancestors)
+    def remove(self, element):
+        if self.search(element):
+            element = [element, (self.search(element))]
         else:
-            raise ValueError("%r not in %s" % (item, self.__class__.__name__))
+            element = [element, None]
+        curr = self._root
+        predecessor = self._path_to(element)
+        if self._current(element, predecessor):
+            node, ind = predecessor.pop()
+            node.remove(ind, predecessor)
+        else:
+            raise ValueError("%r not in %s" % (element, self.__class__.__name__))
 
-    def __contains__(self, item):
-        return self._current(item, self._path_to(item))
+    
+
+    def __contains__(self, element):
+        return self._current(element, self._path_to(element))
 
     def __iter__(self):
         def _recurse(node):
             if node.children:
-                for child, item in zip(node.children, node.value):
+                for child, element in zip(node.children, node.value):
                     for child_item in _recurse(child):
                         yield child_item
-                    yield item
+                    yield element
                 for child_item in _recurse(node.children[-1]):
                     yield child_item
             else:
-                for item in node.value:
-                    yield item
+                for element in node.value:
+                    yield element
 
-        for item in _recurse(self._root):
-            yield item
+        for element in _recurse(self._root):
+            yield element
 
     
 
@@ -279,10 +263,52 @@ def insert_index_entry(table_name, key):
         file = create_table(table_file)
     return 
 
+def write_to_file(record):
+    file_list = os.listdir(self.index_dir)
+    filename = str(self.table_name) + str(self.column_name) + ".ndx"
+    return
 
-b = BTree(10)
-#b.insert('2', '3')
+def initialize_tree(table_name, column_name, new_tree):
+    filename = str(table_name) + "_" + str(column_name) + ".ndx"
+    write_tree_to_file(filename, new_tree)
+    return
+
+def write_tree_to_file(filename, new_tree):
+    with open(filename, "wb") as f:
+        pickle.dump(new_tree, f)
+    return
 
 
-print(b) 
+def read_tree_from_file(table_name, column_name):
+    filename = str(table_name) + "_" + str(column_name) + ".ndx"
+    with open(filename, "rb") as f:
+        tree = pickle.load(f)
+    return tree
 
+b = Index_Btree(5)
+b.insert(['2', '5'])
+b.insert(['7', '5'])
+b.insert(['9', '5'])
+b.insert(['3', '4'])
+b.insert(['5', '4'])
+b.insert(['1', '4'])
+b.insert(['18', '4'])
+b.insert(['11', '5'])
+b.insert(['12', '5'])
+b.insert(['13', '5'])
+b.insert(['14', '4'])
+b.insert(['15', '5'])
+b.insert(['16', '5'])
+b.insert(['17', '5'])
+b.insert(['19', '4'])
+print(b)
+b.remove('17')
+print(b)
+print('\n\n')
+value = b.search('11')
+print(value)
+print('\n\n\n')
+initialize_tree('test', 'test', b)
+tree = read_tree_from_file('test', 'test')
+tree.insert(['22','22'])
+print(tree)
