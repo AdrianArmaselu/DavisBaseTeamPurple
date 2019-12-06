@@ -157,8 +157,6 @@ class _NodeInTree(object):
                 self.expand(predecessor)
 
 
-
-
 class Index_Btree(object):
     BRANCH = LEAF = _NodeInTree
 
@@ -253,25 +251,39 @@ class Index_Btree(object):
         return "\n".join(accum)
 
 
-def insert_index_entry(table_name, key):
+def insert_index_entry(table_name, column_name, key, value):
     file_list = os.listdir(data_dir)
-    table_file = str(table_name) + ".ndx"
+    filename = str(table_name) + "_" + str(column_name) + ".ndx"
 
-    if table_file not in file_list:
-        file = os.path.join(data_dir, table_file)
+    if filename not in file_list:
+    	dicti = {}
+    	dicti[key] = value
+    	initialize_tree(table_name, column_name, dicti)
     else:
-        file = create_table(table_file)
+        tree = read_tree_from_file(table_name, column_name)
+        tree.insert([key,value])
+        write_tree_to_file(filename, tree)
     return 
 
-def write_to_file(record):
-    file_list = os.listdir(self.index_dir)
-    filename = str(self.table_name) + str(self.column_name) + ".ndx"
-    return
-
-def initialize_tree(table_name, column_name, new_tree):
+def remove_index_entry(table_name, column_name, key):
+    file_list = os.listdir(data_dir)
     filename = str(table_name) + "_" + str(column_name) + ".ndx"
-    write_tree_to_file(filename, new_tree)
-    return
+
+    if filename not in file_list:
+    	return False
+    else:
+        tree = read_tree_from_file(table_name, column_name)
+        tree.remove(key)
+        write_tree_to_file(filename, tree)
+    return True
+
+def initialize_tree(table_name, column_name, tree_values):
+	new_tree = Index_Btree(5)
+	for key, value in tree_values:
+		new_tree.insert([key, value])
+	filename = str(table_name) + "_" + str(column_name) + ".ndx"
+	write_tree_to_file(filename, new_tree)
+	return
 
 def write_tree_to_file(filename, new_tree):
     with open(filename, "wb") as f:
@@ -285,30 +297,35 @@ def read_tree_from_file(table_name, column_name):
         tree = pickle.load(f)
     return tree
 
-b = Index_Btree(5)
-b.insert(['2', '5'])
-b.insert(['7', '5'])
-b.insert(['9', '5'])
-b.insert(['3', '4'])
-b.insert(['5', '4'])
-b.insert(['1', '4'])
-b.insert(['18', '4'])
-b.insert(['11', '5'])
-b.insert(['12', '5'])
-b.insert(['13', '5'])
-b.insert(['14', '4'])
-b.insert(['15', '5'])
-b.insert(['16', '5'])
-b.insert(['17', '5'])
-b.insert(['19', '4'])
-print(b)
-b.remove('17')
-print(b)
-print('\n\n')
-value = b.search('11')
-print(value)
-print('\n\n\n')
-initialize_tree('test', 'test', b)
-tree = read_tree_from_file('test', 'test')
-tree.insert(['22','22'])
-print(tree)
+def search(table_name, column_name, key):
+    tree = read_tree_from_file(table_name, column_name)
+    value = tree.search(key)
+    return value
+
+# b = Index_Btree(5)
+# b.insert(['2', '5'])
+# b.insert(['7', '5'])
+# b.insert(['9', '5'])
+# b.insert(['3', '4'])
+# b.insert(['5', '4'])
+# b.insert(['1', '4'])
+# b.insert(['18', '4'])
+# b.insert(['11', '5'])
+# b.insert(['12', '5'])
+# b.insert(['13', '5'])
+# b.insert(['14', '4'])
+# b.insert(['15', '5'])
+# b.insert(['16', '5'])
+# b.insert(['17', '5'])
+# b.insert(['19', '4'])
+# print(b)
+# b.remove('17')
+# print(b)
+# print('\n\n')
+# value = b.search('11')
+# print(value)
+# print('\n\n\n')
+# initialize_tree('test', 'test', b)
+# tree = read_tree_from_file('test', 'test')
+# tree.insert(['22','22'])
+# print(tree)
