@@ -25,8 +25,23 @@ DATETIME = 10
 DATE = 11
 TEXT = 12
 
+DATA_TYPE_NAME = {
+    0: "NULL",
+    1: "TINYINT",
+    2: "SMALLINT",
+    3: "INT",
+    4: "BIGINT",
+    5: "FLOAT",
+    6: "DOUBLE",
+    8: "YEAR",
+    9: "TIME",
+    10: "DATETIME",
+    11: "DATE",
+    12: "TEXT",
+}
 
-def flatten(input_list: List or bytes) -> List or bytes:
+
+def flatten(input_list: List) -> List:
     return [item for sublist in input_list for item in sublist]
 
 
@@ -45,11 +60,31 @@ def get_column_size(column_type: int) -> int:
 
 # Abstract Class
 class DavisBaseSerializable:
-    def as_bytes(self) -> List:
+    def as_bytes(self) -> AnyStr:
         pass
 
     def from_bytes(self):
         pass
+
+
+class Condition:
+    def __init__(self, column_name: str, operator: str, value: str):
+        self.column_name: str = column_name
+        self.operator: str = operator
+        self.value: str = value
+
+    def is_satisfied(self, value: str):
+        if self.operator == "=":
+            return value == self.value
+        elif self.operator == ">":
+            return value > self.value
+        elif self.operator == ">=":
+            return value >= self.value
+        elif self.operator == "<":
+            return value < self.value
+        elif self.operator == "<=":
+            return value <= self.value
+
 
 
 class RecordColumn:
@@ -64,6 +99,9 @@ class RecordColumn:
 
     def type_bytes(self) -> List:
         return int_to_bytes(self.column_type, 1)
+
+    def __str__(self):
+        return self.column_value + ':' + DATA_TYPE_NAME[self.column_type]
 
 
 class InsertArgs:
@@ -84,8 +122,9 @@ class DeleteArgs:
 
 
 class SelectArgs:
-    def __init__(self):
-        pass
+    def __init__(self, column_names: List[str], condition: Condition):
+        self.column_names: List[str] = column_names
+        self.condition: Condition = condition
 
 
 class TableCell(DavisBaseSerializable):
@@ -108,13 +147,22 @@ class TableLeafCell(TableCell):
     def number_of_columns(self) -> int:
         return len(self.columns)
 
-    def as_bytes(self) -> List:
-        record_body = flatten([column.value_bytes() for column in self.columns])
-        record_types = flatten([[column.type_bytes() for column in self.columns]])
+    def as_bytes(self) -> AnyStr:
+        record_body = b''
+        record_types = b''
+        for column in self.columns:
+            record_body += column.value_bytes()
+            record_types += column.type_bytes()
         number_of_columns_bytes = int_to_bytes(self.number_of_columns(), 1)
         row_id_bytes = int_to_bytes(self.row_id)
         bytes_of_cell_payload = int_to_bytes(1 + len(record_types) + len(record_body))
-        return flatten([bytes_of_cell_payload, row_id_bytes, number_of_columns_bytes, record_types, record_body])
+        return bytes_of_cell_payload + row_id_bytes + number_of_columns_bytes + record_types + record_body
+
+    def matches_condition(self, condition: Condition):
+        pass
+
+    def __str__(self):
+        return str(self.row_id) + " - " + str(self.columns)
 
 
 class TableInteriorCell(TableCell):
@@ -122,10 +170,10 @@ class TableInteriorCell(TableCell):
         super(TableInteriorCell, self).__init__(row_id)
         self.left_child_page_number: int = left_child_page_number
 
-    def as_bytes(self) -> List:
+    def as_bytes(self) -> AnyStr:
         row_id_bytes = int_to_bytes(self.row_id)
         page_number_bytes = int_to_bytes(self.left_child_page_number)
-        return flatten([page_number_bytes, row_id_bytes])
+        return page_number_bytes + row_id_bytes
 
 
 class TablePage(DavisBaseSerializable):
@@ -148,6 +196,9 @@ class TablePage(DavisBaseSerializable):
             if self.cells[i].row_id == row_id:
                 del self.cells[i]
 
+    def __str__(self):
+        return 'test'
+
 
 class TableLeafPage(TablePage):
     PAGE_TYPE = 13
@@ -155,25 +206,42 @@ class TableLeafPage(TablePage):
     def insert(self, cell: TableLeafCell):
         self.cells.append(cell)
 
-    def header_bytes(self) -> List:
-        page_type = [int_to_bytes(self.PAGE_TYPE, 1)]
-        number_of_cells = [int_to_bytes(len(self.cells), 2)]
-        content_area_offset = [-1]  # todo
-        page_number = [self.page_number]
-        page_parent = [self.page_parent]
-        return flatten([page_type, [0], number_of_cells, content_area_offset, page_number, page_parent, [0, 0]])
+    def header_bytes(self) -> AnyStr:
+        page_type = int_to_bytes(self.PAGE_TYPE, 1)
+        number_of_cells = int_to_bytes(len(self.cells), 2)
+        page_number = int_to_bytes(self.page_number, 4)
+        page_parent = int_to_bytes(self.page_parent, 4)
+        content_area_offset = int_to_bytes(512 - len(self.cells_bytes()), 2)
+        return page_type + b'\x00' + number_of_cells + content_area_offset + page_number + page_parent + b'\x00\x00' + self.cells_offsets_bytes()
 
-    def cells_bytes(self) -> List:
-        return flatten([cell.as_bytes() for cell in self.cells])
+    def cells_offsets_bytes(self) -> AnyStr:
+        offsets = b''
+        offset = 512
+        for cell_bytes in self.cells_bytes_list():
+            offset -= len(cell_bytes)
+            offsets += int_to_bytes(offset, 2)
+        return offsets
 
-    def as_bytes(self) -> List:
+    def cells_bytes_list(self) -> List[AnyStr]:
+        return [cell.as_bytes() for cell in self.cells]
+
+    def cells_bytes(self) -> AnyStr:
+        cells_bytes = b''
+        for cell in self.cells:
+            cells_bytes += cell.as_bytes()
+        return cells_bytes
+
+    def as_bytes(self) -> AnyStr:
         header_bytes = self.header_bytes()
-        empty_bytes = [0]  # todo
         cells_bytes = self.cells_bytes()
-        return flatten([header_bytes, empty_bytes, cells_bytes])
+        empty_bytes = bytes([0 for i in range(512 - len(header_bytes) - len(cells_bytes))])
+        return header_bytes + empty_bytes + cells_bytes
 
     def is_full(self):
         return len(self.header_bytes()) + len(self.cells_bytes()) >= 512
+
+    def __str__(self):
+        return str(self.cells)
 
 
 # Abstract class
@@ -195,11 +263,12 @@ class AbstractTableModel:
 
 
 class ListTableModel(AbstractTableModel):
-    def __init__(self, pages: List[TablePage] = None):
+    def __init__(self, name: str, pages: List[TablePage] = None):
         if pages is None:
             pages = [TableLeafPage(0, 0)]
+        self.name: str = name
         self.pages: List[TablePage] = pages
-        self.current_page: int = len(pages) - 1
+        self.current_page: int = 0 if len(pages) == 0 else len(pages) - 1
 
     def as_list(self) -> List[TablePage]:
         return self.pages
@@ -214,16 +283,20 @@ class ListTableModel(AbstractTableModel):
         pass
 
     def select(self, args: SelectArgs):
+        # self.pages.
         pass
 
     def delete(self, args: DeleteArgs):
         pass
 
+    def __str__(self) -> str:
+        return str(self.pages)
+
 
 class DavisTable(DavisBaseSerializable):
     def __init__(self, current_row_id: int = 0, pages=None, name: str = None):
         self.name: str = name
-        self.model: AbstractTableModel = ListTableModel(pages)
+        self.model: AbstractTableModel = ListTableModel(name, pages)
         self.current_row_id: int = current_row_id
 
     def insert(self, args: InsertArgs):
@@ -240,26 +313,18 @@ class DavisTable(DavisBaseSerializable):
         self.model.delete(args)
 
     def as_bytes(self) -> bytes:
-        return flatten([page.as_bytes() for page in self.model.as_list()])
+        content = b''
+        for page in self.model.as_list():
+            content += page.as_bytes()
+        return content
+
+    def __str__(self) -> str:
+        return str(self.model)
 
 
 class DavisIndex(DavisBaseSerializable):
     def __init__(self, name):
         self.name = name
-
-
-class Catalog(DavisBaseSerializable):
-    def __init__(self):
-        self.davisbase_tables = DavisBaseFS().read_tables_table()
-        self.davisbase_columns = DavisBaseFS().read_columns_table()
-        self.davisbase_tables.insert(RecordColumn(INT, 1), RecordColumn(TEXT, 'davisbase_tables'))
-        self.davisbase_tables.insert(RecordColumn(INT, 2), RecordColumn(TEXT, 'davisbase_columns'))
-
-    def load_tables_table(self):
-        pass
-
-    def load_columns_table(self):
-        pass
 
 
 class PageReader:
@@ -316,7 +381,7 @@ class PageReader:
                 left_child_page_number = self.read_int()
                 row_id = self.read_int()
                 cells.append(TableInteriorCell(row_id, left_child_page_number))
-        return TablePage(page_number, page_parent, cells)
+        return TableLeafPage(page_number, page_parent, cells)
 
 
 class TableFile:
@@ -326,11 +391,11 @@ class TableFile:
         self.table_file = None
         self.file_size = os.path.getsize(self.path)
 
-    def read(self) -> DavisTable:
+    def read_pages(self) -> List[TablePage]:
         self.table_file = open(self.path, "rb")
         pages = [self.read_page() for page in range(math.ceil(self.file_size / 512))]
         self.close()
-        return DavisTable(pages=pages)
+        return pages
 
     def write(self, table: DavisTable):
         self.table_file = open(self.path, "wb")
@@ -344,16 +409,23 @@ class TableFile:
         self.table_file.close()
 
 
+def create_path_if_not_exists(path: str):
+    if not os.path.exists(path):
+        os.makedirs(path)
+
+
+THIS_FOLDER = os.path.dirname(os.path.abspath(__file__))
+my_file = os.path.join(THIS_FOLDER, 'myfile.txt')
+
+
 class DavisBaseFS:
     CATALOG_FOLDER_PATH = 'catalog'
     DATA_FOLDER_PATH = 'storage'
 
     def __init__(self, folder: str):
-        self.folder: str = folder
-        if not os.path.exists(self.catalog_folder_path()):
-            os.makedirs(self.catalog_folder_path())
-        if not os.path.exists(self.storage_folder_path()):
-            os.makedirs(self.storage_folder_path())
+        self.folder: str = os.path.abspath(folder)
+        create_path_if_not_exists(self.catalog_folder_path())
+        create_path_if_not_exists(self.storage_folder_path())
 
     def catalog_folder_path(self) -> str:
         return self.folder + '/' + self.CATALOG_FOLDER_PATH
@@ -364,37 +436,52 @@ class DavisBaseFS:
     def read_catalog_table(self, name):
         path = self.catalog_folder_path() + '/' + name + ".tbl"
         if os.path.isfile(path):
-            table = TableFile(path).read()
-            table.name = name
-            return table
+            pages = TableFile(os.path.abspath(path)).read_pages()
+            return DavisTable(name=name, pages=pages)
         return DavisTable(name=name)
 
     def read_tables_table(self) -> DavisTable:
         return self.read_catalog_table('davisbase_table')
 
+    def write_tables_table(self, table: DavisTable):
+        return self.write_catalog_table(table)
+
     def read_columns_table(self) -> DavisTable:
         return self.read_catalog_table('davisbase_columns')
+
+    def write_columns_table(self, table: DavisTable):
+        return self.write_catalog_table(table)
 
     def get_table(self, name: str):
         pass
 
-    def write_table(self, table: DavisTable):
+    def write_data_table(self, table: DavisTable):
         path = self.storage_folder_path() + '/' + table.name + ".tbl"
-        TableFile(path).write(table)
+        self.write_table(path, table)
+
+    def write_catalog_table(self, table: DavisTable):
+        path = self.catalog_folder_path() + '/' + table.name + ".tbl"
+        self.write_table(path, table)
+
+    def write_table(self, path: str, table: DavisTable):
+        with open(path, "wb") as table_file:
+            table_file.write(table.as_bytes())
+            table_file.close()
+
+    def write_index(self, index: DavisIndex):
+        pass
 
 
 class DavisBase:
     def __init__(self):
         self.tables: Dict[str, DavisTable] = {}
         self.indexes = {}
-        self.fs = DavisBaseFS('data')
-        self.load_catalog()
+        self.fs = DavisBaseFS('../data')
+        self.tables_table = self.fs.read_tables_table()
+        self.columns_table = self.fs.read_columns_table()
 
-    def load_catalog(self):
-        tables_table = self.fs.read_tables_table()
-        columns_table = self.fs.read_columns_table()
-        self.tables[tables_table.name] = tables_table
-        self.tables[columns_table.name] = columns_table
+        if self.tables_table.current_row_id == 0:
+            self.tables_table.insert(InsertArgs([RecordColumn(3, 4)]))
 
     def show_tables(self) -> List[str]:
         return [table_name for table_name in self.tables]
@@ -425,8 +512,12 @@ class DavisBase:
         self.tables[table_name].delete(args)
 
     def commit(self):
+        self.fs.write_tables_table(self.tables_table)
+        self.fs.write_tables_table(self.columns_table)
         for table_name in self.tables:
-            self.fs.write_table(self.tables[table_name])
+            self.fs.write_data_table(self.tables[table_name])
+        for index_name in self.indexes:
+            self.fs.write_index(self.indexes[index_name])
         # [open(index.name + '.ndx', 'wb').write(index.to_binary()) for index in self.indexes]
 
 
