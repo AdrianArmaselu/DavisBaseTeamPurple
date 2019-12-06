@@ -57,14 +57,13 @@ class Page:
         #print("Im cleaning the page using offset", page_offset)
         with open(table_file_path, "r+b") as fh:
             fh.seek(page_offset, 0)
-            print("Cleaning the page",page_no)
+            #print("Cleaning the page",page_no)
             for i in range(0, self.page_size):
                 fh.write(b'0')
         return True
 
     def read_page(self, table_file_path, column_dtype, page_number, record_fstring, no_of_records):
-        fstring_value = {"x": 0, "h": 2, "i": 4, "q": 8, "f": 4, "d": 8, "Q": 8, "B": 1, "b": 1, "H": 2, "s": 1}
-
+        fstring_value = {"x": 0, "h": 2, "i": 4, "q": 8, "f": 4, "d": 8, "Q": 8, "B": 1, "b": 1, "H": 2, "s": 1,"I":4}
         with open(table_file_path, 'rb') as fh:
             page_offset = page_number * self.page_size
             page_end = page_offset + self.page_size
