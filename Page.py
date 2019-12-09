@@ -49,15 +49,23 @@ class Page:
             fh.seek(page_offset, 0)
             record = struct.pack(fstring, *record_values)
             fh.write(record)
-            return True
+            return True,fh.tell()
         return False
+    
+    def write_to_del_page(self, table_file_path, page_number, start_byte, record_values, fstring, record_payload=0):
 
+        with open(table_file_path, "r+b") as fh:
+            page_offset = start_byte
+            fh.seek(page_offset, 0)
+            record = struct.pack(fstring, *record_values)
+            fh.write(record)
+            return True,fh.tell()
+        return False
+    
     def page_clean_bytes(self, table_file_path, page_no):
         page_offset = page_no * self.page_size
-        #print("Im cleaning the page using offset", page_offset)
         with open(table_file_path, "r+b") as fh:
             fh.seek(page_offset, 0)
-            #print("Cleaning the page",page_no)
             for i in range(0, self.page_size):
                 fh.write(b'0')
         return True
@@ -72,12 +80,10 @@ class Page:
                 record = []
                 for f_str in record_fstring:
                     fh.seek(page_offset, 0)
-                    # print("offset value is", page_offset)
                     read_bytes = fstring_value[f_str]
                     if f_str != "s":
                         rec_value = fh.read(read_bytes)
                         record.append(struct.unpack(f_str, rec_value)[0])
-                        #print("the record is",record)
                     else:
                         counter = 0
                         read_bytes = fstring_value[f_str]
@@ -87,35 +93,29 @@ class Page:
                             if fh.read(2) != b'>x':
                                 fh.seek(text_pg_offset, 0)
                                 text_val += (struct.unpack(f_str, fh.read(read_bytes))[0]).decode("utf-8")
-                                #print("tex_val is", text_val)
                                 text_pg_offset += 1
                                 counter += 1
                             else:
                                 counter += 2
                                 break
                         if counter % 4 != 0:
-                            # print("counter is", counter)
                             read_bytes = counter + (4 - (counter % 4))
                         else:
                             read_bytes = counter
                         record.append(text_val)
-                        # print("read_bytes", read_bytes)
                     page_offset += read_bytes
-                # print("record value is", record)
-                # print("offset after text", page_offset)
                 page_records.append(record)
 
         if len(record) < 1:
             print("Error while reading the page")
             return False, page_records
         else:
-            print("Page read successful")
+            #print("Page read successful")
             return True, page_records
 
     def update_root_node(self, table_file_path, updated_root,root_offset):
         with open(table_file_path, "r+b") as fh:
             fh.seek(root_offset, 0)
-            #print("updating the root offset", root_offset)
             root_node_size = len(updated_root)
             root_node = struct.pack('i' * root_node_size, *updated_root)
             fh.write(root_node)
