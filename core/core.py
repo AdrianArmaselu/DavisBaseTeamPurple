@@ -11,21 +11,7 @@ INDEX_BTREE_LEAF_PAGE = 10
 TABLE_BTREE_INTERIOR_PAGE = 5
 TABLE_BTREE_LEAF_PAGE = 13
 
-# Constants
-NULL = 0
-TINYINT = 1
-SMALLINT = 2
-INT = 3
-BIGINT = 4
-FLOAT = 5
-DOUBLE = 6
-YEAR = 8
-TIME = 9
-DATETIME = 10
-DATE = 11
-TEXT = 12
-
-DATA_TYPE_NAME = {
+data_types = {
     0: "NULL",
     1: "TINYINT",
     2: "SMALLINT",
@@ -39,6 +25,8 @@ DATA_TYPE_NAME = {
     11: "DATE",
     12: "TEXT",
 }
+
+data_type_encodings = {v: k for k, v in data_types.items()}
 
 
 def flatten(input_list: List) -> List:
@@ -74,39 +62,18 @@ class Condition:
         self.value: str = value
 
     def is_satisfied(self, value: str):
-        if self.operator == "=":
-            return value == self.value
-        elif self.operator == ">":
-            return value > self.value
-        elif self.operator == ">=":
-            return value >= self.value
-        elif self.operator == "<":
-            return value < self.value
-        elif self.operator == "<=":
-            return value <= self.value
-
-
-
-class RecordColumn:
-    def __init__(self, column_type: int, column_value: int or str):
-        self.column_type: int = column_type
-        self.column_value: int or str = column_value
-        self.column_size: int = get_column_size(column_type)
-
-    def value_bytes(self) -> List:
-        return int_to_bytes(self.column_value, self.column_size) if self.column_size < 12 \
-            else bytes(self.column_value, 'utf-8')
-
-    def type_bytes(self) -> List:
-        return int_to_bytes(self.column_type, 1)
-
-    def __str__(self):
-        return self.column_value + ':' + DATA_TYPE_NAME[self.column_type]
+        return {
+            "=": lambda a, b: a == b,
+            ">": lambda a, b: a > b,
+            ">=": lambda a, b: a >= b,
+            "<": lambda a, b: a < b,
+            "<=": lambda a, b: a <= b
+        }[self.operator](value, self.value)
 
 
 class InsertArgs:
-    def __init__(self, record: List[RecordColumn]):
-        self.record: List[RecordColumn] = record
+    def __init__(self, record: List):
+        self.record: List = record
 
 
 class UpdateArgs:
@@ -127,74 +94,29 @@ class SelectArgs:
         self.condition: Condition = condition
 
 
-class TableCell(DavisBaseSerializable):
-    def __init__(self, row_id):
-        self.row_id: int = row_id
-
-    def payload_size(self) -> int:
-        return len(self.as_bytes())
-
-    def from_bytes(self) -> 'TableCell':
-        pass
-
-
-class TableLeafCell(TableCell):
-    def __init__(self, row_id: int, columns: List[RecordColumn]):
-        super(TableLeafCell, self).__init__(row_id)
-        self.row_id: int = row_id
-        self.columns: List[RecordColumn] = columns
-
-    def number_of_columns(self) -> int:
-        return len(self.columns)
-
-    def as_bytes(self) -> AnyStr:
-        record_body = b''
-        record_types = b''
-        for column in self.columns:
-            record_body += column.value_bytes()
-            record_types += column.type_bytes()
-        number_of_columns_bytes = int_to_bytes(self.number_of_columns(), 1)
-        row_id_bytes = int_to_bytes(self.row_id)
-        bytes_of_cell_payload = int_to_bytes(1 + len(record_types) + len(record_body))
-        return bytes_of_cell_payload + row_id_bytes + number_of_columns_bytes + record_types + record_body
-
-    def matches_condition(self, condition: Condition):
-        pass
-
-    def __str__(self):
-        return str(self.row_id) + " - " + str(self.columns)
-
-
-class TableInteriorCell(TableCell):
-    def __init__(self, row_id: int, left_child_page_number: int):
-        super(TableInteriorCell, self).__init__(row_id)
-        self.left_child_page_number: int = left_child_page_number
-
-    def as_bytes(self) -> AnyStr:
-        row_id_bytes = int_to_bytes(self.row_id)
-        page_number_bytes = int_to_bytes(self.left_child_page_number)
-        return page_number_bytes + row_id_bytes
-
-
 class TablePage(DavisBaseSerializable):
-    def __init__(self, page_number: int, page_parent: int, cells: List[TableCell] = None):
-        if cells is None:
-            cells = []
-        self.cells: List[TableCell] = cells
+    def __init__(self, page_number: int, page_parent: int, data_types, rows: Dict = None):
+        if rows is None:
+            rows = {}
+        self.rows: Dict = rows
         self.page_number: int = page_number
         self.page_parent: int = page_parent
+        self.data_types = data_types
 
-    def insert_record(self, row_id: int, record: List[RecordColumn]):
-        self.cells.append(TableLeafCell(row_id, record))
+    def row_count(self):
+        return len(self.rows)
+
+    def insert_record(self, row_id: int, record: List):
+        self.rows[row_id] = record
 
     # abstract function
     def is_full(self):
         pass
 
     def remove_record(self, row_id):
-        for i in range(len(self.cells)):
-            if self.cells[i].row_id == row_id:
-                del self.cells[i]
+        for i in range(len(self.rows)):
+            if self.rows[i].row_id == row_id:
+                del self.rows[i]
 
     def __str__(self):
         return 'test'
@@ -203,14 +125,14 @@ class TablePage(DavisBaseSerializable):
 class TableLeafPage(TablePage):
     PAGE_TYPE = 13
 
-    def insert(self, cell: TableLeafCell):
-        self.cells.append(cell)
+    def insert(self, row_id, row: List):
+        self.rows[row_id] = row
 
     def header_bytes(self) -> AnyStr:
         page_type = int_to_bytes(self.PAGE_TYPE, 1)
-        number_of_cells = int_to_bytes(len(self.cells), 2)
-        page_number = int_to_bytes(self.page_number, 4)
-        page_parent = int_to_bytes(self.page_parent, 4)
+        number_of_cells = int_to_bytes(len(self.rows), 2)
+        page_number = int_to_bytes(self.page_number)
+        page_parent = int_to_bytes(self.page_parent)
         content_area_offset = int_to_bytes(512 - len(self.cells_bytes()), 2)
         return page_type + b'\x00' + number_of_cells + content_area_offset + page_number + page_parent + b'\x00\x00' + self.cells_offsets_bytes()
 
@@ -223,13 +145,36 @@ class TableLeafPage(TablePage):
         return offsets
 
     def cells_bytes_list(self) -> List[AnyStr]:
-        return [cell.as_bytes() for cell in self.cells]
+        return [cell.as_bytes() for cell in self.rows]
+
+    def rows_bytes(self) -> AnyStr:
+        values_bytes = b''
+        for page_row in self.rows:
+            values_bytes += self.row_bytes(page_row)
+        return values_bytes
+
+    def row_bytes(self, page_row) -> AnyStr:
+        row_bytes = b''
+        for i in range(len(self.data_types)):
+            column_size = get_column_size(self.data_types[i])
+            column_value = page_row[i]
+            row_bytes += bytes(column_value, 'utf-8') if isinstance(column_value, str) else int_to_bytes(column_value, column_size)
+        return row_bytes
 
     def cells_bytes(self) -> AnyStr:
         cells_bytes = b''
-        for cell in self.cells:
-            cells_bytes += cell.as_bytes()
+        for row_id in self.rows:
+            page_row = self.rows[row_id]
+            cell_payload_size_bytes = int_to_bytes(len(self.data_types) + sum(self.data_types), 2)
+            row_id_bytes = int_to_bytes(row_id)
+            number_of_columns_bytes = int_to_bytes(len(page_row))
+            data_types_bytes = bytes(self.data_types)
+            cells_bytes += cell_payload_size_bytes + row_id_bytes + number_of_columns_bytes + data_types_bytes + self.row_bytes(page_row)
         return cells_bytes
+
+    def record_byte_size(self):
+        # cell payload size + rowid + number of columns + data_types + values
+        return 7 + len(self.data_types) + sum([get_column_size(data_type) for data_type in self.data_types])
 
     def as_bytes(self) -> AnyStr:
         header_bytes = self.header_bytes()
@@ -241,7 +186,7 @@ class TableLeafPage(TablePage):
         return len(self.header_bytes()) + len(self.cells_bytes()) >= 512
 
     def __str__(self):
-        return str(self.cells)
+        return str(self.rows)
 
 
 # Abstract class
@@ -283,7 +228,12 @@ class ListTableModel(AbstractTableModel):
         pass
 
     def select(self, args: SelectArgs):
-        # self.pages.
+        #
+        # rows = []
+        # for page in self.pages:
+        #     for cell in page.cells:
+        #         leaf_cell: TableLeafCell = cell
+        #         args.condition.is_satisfied(leaf_cell.columns.)
         pass
 
     def delete(self, args: DeleteArgs):
@@ -363,7 +313,7 @@ class PageReader:
         self.skip(2)
         cells_offsets = self.read(2 * number_of_cells)
 
-        cells: List[TableCell] = []
+        page_rows: Dict = {}
         for cell_offset in cells_offsets:
             self.seek(cell_offset)
             if page_type == TABLE_BTREE_LEAF_PAGE:
@@ -371,17 +321,17 @@ class PageReader:
                 row_id = self.read_int()
                 number_of_columns = self.read_byte()
                 column_data_types = self.read(number_of_columns)
-                record_columns: List[RecordColumn] = []
+                record_columns: List = []
                 for column_type in column_data_types:
                     value_bytes = self.read(get_column_size(column_type))
                     column_value = bytes_to_int(value_bytes) if column_type < 12 else str(value_bytes)
-                    record_columns.append(RecordColumn(column_type, column_value))
-                cells.append(TableLeafCell(row_id, record_columns))
+                    record_columns.append(column_value)
+                page_rows[row_id] = record_columns
             if page_type == TABLE_BTREE_INTERIOR_PAGE:
                 left_child_page_number = self.read_int()
                 row_id = self.read_int()
-                cells.append(TableInteriorCell(row_id, left_child_page_number))
-        return TableLeafPage(page_number, page_parent, cells)
+                page_rows[row_id] = left_child_page_number
+        return TableLeafPage(page_number, page_parent, page_rows)
 
 
 class TableFile:
@@ -481,7 +431,7 @@ class DavisBase:
         self.columns_table = self.fs.read_columns_table()
 
         if self.tables_table.current_row_id == 0:
-            self.tables_table.insert(InsertArgs([RecordColumn(3, 4)]))
+            self.tables_table.insert(InsertArgs([3]))
 
     def show_tables(self) -> List[str]:
         return [table_name for table_name in self.tables]
@@ -520,6 +470,8 @@ class DavisBase:
             self.fs.write_index(self.indexes[index_name])
         # [open(index.name + '.ndx', 'wb').write(index.to_binary()) for index in self.indexes]
 
-
-davis_base = DavisBase()
-davis_base.commit()
+# davis_base = DavisBase()
+# davis_base.commit()
+rows = {1: "a", 2: "b"}
+for row in rows:
+    print(row)
