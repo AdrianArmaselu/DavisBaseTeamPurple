@@ -2,6 +2,7 @@ import math
 import os
 import datetime
 import time
+from tabulate import tabulate
 from Page import Page
 
 
@@ -15,7 +16,7 @@ class Table(Page):
         self.table_dir = self.data_dir + "/" + self.table_name
         self.table_file_path = self.table_dir + "/" + self.table_name + ".tbl"
         self.dtype_bytes = {"null": 0, "tinyint": 2, "smallint": 2, "int": 4, "bigint": 8, "long": 8,
-                            "float": 4, "double": 8, "year": 4, "time": 4, "datetime": 4 , "date": 4}
+                            "float": 4, "double": 8, "year": 4, "time": 4, "datetime": 4, "date": 4}
         self.struct_format_string = {"null": "x", "tinyint": 'b', "smallint": 'h', "int": 'i',
                                      "bigint": "q", "long": "q", "float": "f", "double": "d", "year": "i", "time": "I",
                                      "datetime": "I", "date": "I"}
@@ -24,7 +25,6 @@ class Table(Page):
     # Create a table if the table already didn't exists
     def create_table(self, table_name):
         self.__init__(table_name)
-        print(self.data_dir)
         try:
             if not os.path.isdir(self.data_dir):
                 os.makedirs(self.table_dir)
@@ -42,7 +42,6 @@ class Table(Page):
 
     def values_to_fstring(self, col_dtype, values):
         fstring = " "
-        print(col_dtype, values)
         for dt in range(0, len(col_dtype)):
             if col_dtype[dt] in self.struct_format_string.keys():
                 fstring += self.struct_format_string[col_dtype[dt]]
@@ -103,7 +102,6 @@ class Table(Page):
             ret_val = ts.strftime('%m.%d.%Y %H:%M:%S')
         elif conv == "date":
             ret_val = ts.strftime('%m.%d.%Y')
-        print("ret val",ret_val)
         return ret_val
 
     def string_from_date_time(self, col_dtype, values):
@@ -116,16 +114,13 @@ class Table(Page):
                 values[dt] = self.bytes_to_date_time(values[dt], "date")
             elif col_dtype[dt] == "datetime":
                 values[dt] = self.bytes_to_date_time(values[dt], "datetime")
-
         return values
 
     def date_time_conv(self, col_dtype, values):
         for dt in range(0, len(col_dtype)):
             if col_dtype[dt] == "year":
-                print(int(values[dt]))
                 values[dt] = int(values[dt])
             elif col_dtype[dt] == "time":
-                print()
                 values[dt] = self.time_to_milli(values[dt])
             elif col_dtype[dt] == "date":
                 values[dt] = self.date_time_epoch_to_bytes(values[dt], "date")
@@ -175,12 +170,12 @@ class Table(Page):
             row_id = 1
             record = self.string_encoding([row_id] + values)
             page_offset = page_number * self.page_size
-            # print("record is", record)
             fstring = self.values_to_fstring(col_dtype, record)
             record = self.explicit_type_conv(col_dtype, record)
             #print("Creating1 new record", page_number, page_offset, record, fstring)
-            insert_success = self.write_to_page(self.table_file_path, page_number, page_offset, record, fstring,
-                                                record_payload)
+            insert_success, temp_var = self.write_to_page(self.table_file_path, page_number, page_offset, record,
+                                                          fstring,
+                                                          record_payload)
             if insert_success:
                 root_node_len = len(root_node)
                 if root_node_len == 3:
@@ -195,10 +190,11 @@ class Table(Page):
                 page_offset = (page_filled_size) + page_number * self.page_size
                 record = self.string_encoding([page_last_rowid + 1] + values)
                 fstring = self.values_to_fstring(col_dtype, record)
-                # print("Creating2 new record", page_number, page_offset, record, fstring)
+                #print("Creating2 new record", page_number, page_offset, record, fstring)
                 record = self.explicit_type_conv(col_dtype, record)
-                insert_success = self.write_to_page(self.table_file_path, page_number, page_offset, record, fstring,
-                                                    record_payload)
+                insert_success, temp_var = self.write_to_page(self.table_file_path, page_number, page_offset, record,
+                                                              fstring,
+                                                              record_payload)
                 if insert_success:
                     root_node_len = len(root_node)
                     if root_node_len == 3:
@@ -212,14 +208,14 @@ class Table(Page):
                 new_page_number = page_number + 1
                 new_page_rowid = page_last_rowid + 1
                 page_total_record = 1
-                # print("the new page no and rowid", new_page_number, new_page_rowid)
                 page_offset = new_page_number * self.page_size
                 record = self.string_encoding([new_page_rowid] + values)
                 fstring = self.values_to_fstring(col_dtype, record)
-                # print("Creating3 new record", page_number, page_offset, record, fstring)
+                #print("Creating3 new record", page_number, page_offset, record, fstring)
                 record = self.explicit_type_conv(col_dtype, record)
-                insert_success = self.write_to_page(self.table_file_path, new_page_number, page_offset, record,
-                                                    fstring, record_payload)
+                insert_success, temp_var = self.write_to_page(self.table_file_path, new_page_number, page_offset,
+                                                              record,
+                                                              fstring, record_payload)
                 if insert_success:
                     root_offset = ((len(root_node)) // 3) * 12
                     self.update_root_node(self.table_file_path,
@@ -233,25 +229,18 @@ class Table(Page):
 
     def traverse_tree(self, table_name):
         self.__init__(table_name)
-
         table_exists = self.check_if_table_exists(self.table_file_path)
         if not table_exists:
             print(self.table_name + " is not exists in the DavisBase...Please check the table name")
             return False
-        # print("Table is existing")
         col_dtype, col_constraint, column_names = self.scheme_dtype_constraint()
         s_fstring = self.schema_to_fstring(col_dtype)
         root_node = self.get_root_node(self.table_file_path)
-        # print("root node is", root_node)
         page_records = []
-        print(root_node)
-
         for page_no in range(0, len(root_node), 3):
-            # print("for the page number", root_node[page_no], col_dtype, s_fstring)
-            # print("the number of records in the page is", root_node[page_no + 1])
+            #print("for the page number", root_node[page_no], col_dtype, s_fstring)
             ret_val, record_val = self.read_page(self.table_file_path, col_dtype, int(root_node[page_no]), s_fstring,
                                                  root_node[page_no + 1])
-            # print("hello", record_val)
             if ret_val:
                 page_records += record_val
             else:
@@ -265,7 +254,6 @@ class Table(Page):
         if not table_exists:
             print(self.table_name + " is not exists in the DavisBase...Please check the table name")
             return False
-        # print("Table is existing")
         col_dtype, col_constraint, column_names = self.scheme_dtype_constraint()
         if column not in column_names:
             return False
@@ -274,35 +262,22 @@ class Table(Page):
         column_index = column_names.index(column)
         s_fstring = self.schema_to_fstring(col_dtype)
         root_node = self.get_root_node(self.table_file_path)
+        value = self.date_time_conv([col_dtype[column_index]], [value])[0]
         page_records = []
-        # print(root_node)
         total_deleted_records = []
         insert_success = False
         for page_no in range(0, len(root_node), 3):
             page_number = root_node[page_no]
             page_total_recs = root_node[page_no + 1]
             page_last_rid = root_node[page_no + 2]
-            # print("for the page number", page_number, col_dtype, s_fstring)
-            # print("the number of records in the page is", page_total_recs)
             ret_val, record_val = self.read_page(self.table_file_path, col_dtype, page_number, s_fstring,
                                                  page_total_recs)
-            temp_record = []
-            for rec in range(len(record_val)):
-                temp_record.append(self.string_from_date_time(col_dtype, record_val[rec]))
-            record_val.clear()
-            record_val = temp_record.copy()
-            # print("the val and record", ret_val, record_val, len(record_val))
             if ret_val:
-                # new_page_records = []
-                # for rec in range(0, len(record_val)):
-                # print("the for loop", rec, record_val[rec], record_val[rec][column_index])
                 deleted_records, new_page_records = self.column_condition_check(record_val, operator, value,
                                                                                 column_index, is_not)
             else:
                 print("Error while traversing through Tree")
                 break
-            # print("new page records", new_page_records)
-            # print("deleted records", deleted_records)
 
             for dr in deleted_records:
                 total_deleted_records.append(dr)
@@ -317,13 +292,11 @@ class Table(Page):
                     record = self.string_encoding(record)
                     fstring = self.values_to_fstring(col_dtype, record)
                     record_payload = self.calculate_payload_size(record)
-                    # print("hey the record", record)
-                    # print("the fstring is ", col_dtype, record)
-                    # print("the record and payload", record, fstring, record_payload)
-                    # print("wrting to page", page_number, page_offset, record, fstring, record_payload)
+                    #print("wrting to page", page_number, page_offset, record, fstring, record_payload)
                     record = self.explicit_type_conv(col_dtype, record)
-                    insert_success = self.write_to_page(self.table_file_path, page_number, page_offset, record, fstring,
-                                                        record_payload)
+                    insert_success, page_offset = self.write_to_del_page(self.table_file_path, page_number, page_offset,
+                                                                         record, fstring,
+                                                                         record_payload)
                 if insert_success:
                     root_node_len = len(root_node)
                     if root_node_len == 3:
@@ -331,15 +304,13 @@ class Table(Page):
                     else:
                         root_offset = (page_no // 3) * 12
                     page_total_recs = len(new_page_records)
-                    # print("updating the root node", page_number, page_total_recs, page_last_rid, root_offset)
+                    #print("updating the root node", page_number, page_total_recs, page_last_rid, root_offset)
                     self.update_root_node(self.table_file_path, [page_number, page_total_recs, page_last_rid],
                                           root_offset)
                 else:
                     print("Error while writing into page")
             else:
                 continue
-                # print("no change in this page")
-            #print("deleted records", deleted_records)
         return True
 
     def calculate_payload_size(self, values):
@@ -347,10 +318,9 @@ class Table(Page):
         self.table_desc = {"row_id": {"datatype": "int", "constraints": "pri:not null"},
                            "person_id": {"datatype": "int", "constraints": "not null"},
                            "name": {"datatype": "text", "constraints": "not null"},
-                           "dob":{"datatype": "date", "constraints": "not null"},
+                           "dob": {"datatype": "date", "constraints": "not null"},
                            "email": {"datatype": "text", "constraints": ""},
-                           "gender": {"datatype": "text", "constraints": ""},
-                           "dept_no":{"datatype": "int", "constraints": "not null"}}
+                           "dept_no": {"datatype": "int", "constraints": "not null"}}
         # table_desc = self.table_dtype_constraint()
         dtype_bytes = []
         for index, (col, col_cons) in enumerate(self.table_desc.items()):
@@ -358,28 +328,18 @@ class Table(Page):
                 dtype_bytes.append(self.dtype_bytes[col_cons["datatype"]])
 
             if col_cons["datatype"] == "text":
-                # print("in payload", values[index], values)
                 dtype_bytes.append(len(values[index]))
-        # print(dtype_bytes)
         payload_size = sum(dtype_bytes)
-        # print("Payload size is", payload_size)
         return payload_size
 
     # get the datatype,constraints from the meta-data
     def scheme_dtype_constraint(self):
-        '''
-        self.table_desc = {"col1": {"datatype": "int", "constraints": "pri:not null"},
-                           "col2": {"datatype": "int", "constraints": "not null"},
-                           "col3": {"datatype": "text", "constraints": "not null"},
-                           "col4": {"datatype": "float", "constraints": ""}}
-        '''
         self.table_desc = {"row_id": {"datatype": "int", "constraints": "pri:not null"},
                            "person_id": {"datatype": "int", "constraints": "not null"},
                            "name": {"datatype": "text", "constraints": "not null"},
-                           "dob":{"datatype": "date", "constraints": "not null"},
+                           "dob": {"datatype": "date", "constraints": "not null"},
                            "email": {"datatype": "text", "constraints": ""},
-                           "gender": {"datatype": "text", "constraints": ""},
-                           "dept_no":{"datatype": "int", "constraints": "not null"}}
+                           "dept_no": {"datatype": "int", "constraints": "not null"}}
 
         self.table_constraints = []
         self.table_dtypes = []
@@ -394,7 +354,6 @@ class Table(Page):
         impacted_records = []
         unimpacted_records = []
         for rec in range(0, len(record_val)):
-            # print("the for loop", rec, record_val[rec], record_val[rec][column_index])
             if cond_operator == "=":
                 if is_not:
                     if not record_val[rec][column_index] == value:
@@ -465,12 +424,8 @@ class Table(Page):
         return impacted_records, unimpacted_records
 
     def update_matched_records(self, updated_records, set_column, set_value, set_column_index):
-        # print(updated_records, len(updated_records))
         for rec in range(0, len(updated_records)):
-            # print(rec)
-            # print("update matahced records", updated_records[rec], set_value, set_column_index)
             updated_records[rec][set_column_index] = set_value
-        # print("returning the updated records", updated_records)
         return updated_records
 
     def update_record(self, table_name, set_column, set_value, cond_column, cond_operator, cond_value, is_not=False):
@@ -479,7 +434,6 @@ class Table(Page):
         if not table_exists:
             print(self.table_name + " is not exists in the DavisBase...Please check the table name")
             return False
-        # print("Table is existing")
         col_dtype, col_constraint, column_names = self.scheme_dtype_constraint()
         if set_column not in column_names and cond_column not in column_names:
             return False
@@ -489,8 +443,8 @@ class Table(Page):
         cond_column_index = column_names.index(cond_column)
         s_fstring = self.schema_to_fstring(col_dtype)
         root_node = self.get_root_node(self.table_file_path)
-        page_records = []
-        # print("root noe is", root_node)
+        cond_value = self.date_time_conv([col_dtype[cond_column_index]], [cond_value])[0]
+        set_value = self.date_time_conv([col_dtype[set_column_index]], [set_value])[0]
         deleted_records = []
         root_last_rid = root_node[-1]
         move_records = []
@@ -498,26 +452,18 @@ class Table(Page):
             page_number = root_node[page_no]
             page_total_recs = root_node[page_no + 1]
             page_last_rid = root_node[page_no + 2]
-            # print("for the page number", page_number, col_dtype, s_fstring)
-            # print("the number of records in the page is", page_total_recs)
             ret_val, record_val = self.read_page(self.table_file_path, col_dtype, int(page_number), s_fstring,
                                                  page_total_recs)
-            temp_record = []
-            for rec in range(len(record_val)):
-                temp_record.append(self.string_from_date_time(col_dtype, record_val[rec]))
-            record_val.clear()
-            record_val = temp_record.copy()
-            # print("the val and record", ret_val, record_val, len(record_val))
-            
+
             if ret_val:
-                # print("column condition checking", record_val, cond_operator, cond_value, cond_column_index, is_not)
+                #print("column condition checking", record_val, cond_operator, cond_value, cond_column_index, is_not)
                 updated_records, n_page_records = self.column_condition_check(record_val, cond_operator, cond_value,
                                                                               cond_column_index, is_not)
             else:
                 print("Error while traversing through Tree")
                 break
-            # print("updated records are ", updated_records)
-            # print("Old records are ", n_page_records)
+            #print("updated records are ", updated_records)
+            #print("Old records are ", n_page_records)
             if len(updated_records) > 0:
                 # print("checking for the udpated recorsd", updated_records, set_column, set_value, set_column_index)
                 updated_records = self.update_matched_records(updated_records, set_column, set_value, set_column_index)
@@ -533,21 +479,18 @@ class Table(Page):
                     else:
                         move_records.append(rec)
 
-                # self.page_clean_bytes(self.table_file_path, page_number)
                 page_offset = page_number * self.page_size
                 for record in n_page_records:
                     for val in range(0, len(record)):
-                        if isinstance(record[val], str):
+                        if col_dtype[val] == "text":
                             record[val] = (record[val] + ">x")
                     record = self.string_encoding(record)
                     fstring = self.values_to_fstring(col_dtype, record)
                     record_payload = self.calculate_payload_size(record)
-                    # print("hey the record", record)
-                    # print("the fstring is ", col_dtype, record)
-                    # print("the record and payload", record, fstring, record_payload)
-                    # print("wrting to page", page_number, page_offset, record, fstring, record_payload)
-                    insert_success = self.write_to_page(self.table_file_path, page_number, page_offset, record, fstring,
-                                                        record_payload)
+                    #print("wrting to page", page_number, page_offset, record, fstring, record_payload)
+                    insert_success, page_offset = self.write_to_page(self.table_file_path, page_number, page_offset,
+                                                                     record, fstring,
+                                                                     record_payload)
                 if insert_success:
                     root_node_len = len(root_node)
                     if root_node_len == 3:
@@ -555,7 +498,7 @@ class Table(Page):
                     else:
                         root_offset = (page_no // 3) * 12
                     page_total_recs = len(n_page_records)
-                    # print("updaing the root node", page_number, page_total_recs, page_last_rid, root_offset)
+                    # print("updating the root node", page_number, page_total_recs, page_last_rid, root_offset)
                     self.update_root_node(self.table_file_path, [page_number, page_total_recs, page_last_rid],
                                           root_offset)
                     # print("updated root node is", self.get_root_node(self.table_file_path))
@@ -565,38 +508,40 @@ class Table(Page):
                 # print("no change in this page")
                 continue
         for record in range(len(move_records)):
+            record = self.string_from_date_time(col_dtype, record)
             self.insert_into_table(self.table_name, record[1:])
-        print("updated records are", move_records)
         return True
 
-    def select_from_table(self, table_name, select_columns, cond_column, cond_operator, cond_value, is_not):
+    def select_from_table(self, table_name, select_columns, cond_column=None, cond_operator=None, cond_value=None,
+                          is_not=None):
         self.__init__(table_name)
         all_records = self.traverse_tree(table_name)
-        col_dtype, col_constraint, column_names = self.scheme_dtype_constraint()
-        if cond_column not in column_names:
-            return False
-        cond_column_index = column_names.index(cond_column)
         temp_record = []
+        col_dtype, col_constraint, column_names = self.scheme_dtype_constraint()
         for rec in range(len(all_records)):
             temp_record.append(self.string_from_date_time(col_dtype, all_records[rec]))
         all_records.clear()
         all_records = temp_record.copy()
-        print("completed all read", all_records)
-        print("condition check",all_records, cond_operator, cond_value,cond_column_index, is_not)
-        selected_records, n_page_records = self.column_condition_check(all_records, cond_operator, cond_value,
-                                                                       cond_column_index, is_not)
-        # print("all the selected records using tra", selected_records)
+        if cond_column is None or cond_operator is None or cond_value is None:
+            selected_records = all_records.copy()
+        else:
+            if cond_column not in column_names:
+                return False
+            cond_column_index = column_names.index(cond_column)
+            #print("condition check", all_records, cond_operator, cond_value, cond_column_index, is_not)
+            selected_records, n_page_records = self.column_condition_check(all_records, cond_operator, cond_value,
+                                                                           cond_column_index, is_not)
         select_column_index = []
         if select_columns == ['*']:
             matched_records = selected_records.copy()
-            print("Selected records are ", selected_records)
+            selected_col_names = column_names.copy()
         else:
-            # print("col and select col are", select_columns,column_names)
             for col in select_columns:
                 if col in column_names:
-                    # print("columns are", col, column_names.index(col))
                     select_column_index.append(column_names.index(col))
-            # print("I want the columns with index", select_column_index)
+            selected_col_names = []
+            for col in select_column_index:
+                selected_col_names.append(column_names[col])
             matched_records = []
 
             for rec in range(len(selected_records)):
@@ -604,38 +549,47 @@ class Table(Page):
                 for ind in select_column_index:
                     rec_matched_index.append(selected_records[rec][ind])
                 matched_records.append(rec_matched_index)
-            print("Selected records are ", matched_records)
-        return matched_records
+        return matched_records, selected_col_names
 
 
 Table = Table("person_details")
 
+print("Table Creation\n")
 Table.create_table("person_details")
 
-Table.insert_into_table("person_details", [100,"Dotty","07.07.2019","deastup0@google.nl","Female",62])
-Table.insert_into_table("person_details", [101,"Aksel","03.11.2019","agoldson1@tiny.cc","Male",20])
-Table.insert_into_table("person_details", [102,"Trixie","02.07.2019","tdaniellot6@flickr.com","Female",17])
-'''
+print("Table Insert\n")
+Table.insert_into_table("person_details", [100, "Dotty", "07.01.2019", "deastup0@google.nl", 62])
+Table.insert_into_table("person_details", [101, "Aksel", "03.01.2019", "agoldson1@tiny.cc", 20])
+Table.insert_into_table("person_details", [102, "Trixie", "02.02.2019", "tdaniellot6@flickr.com", 17])
+Table.insert_into_table("person_details", [103, "Reggy", "01.02.2019", "rlapid9@mtv.com", 53])
+records, columns = Table.select_from_table("person_details",['*'])
+
+print("Table Record Deletion\n")
 column = "name"
 operator = "="
 value = "Trixie"
 is_not = False
 Table.delete_record("person_details", column, operator, value, is_not)
+records, columns = Table.select_from_table("person_details",['*'])
+print(tabulate(records, headers=columns))
 
-
+print("Table Record Updation\n")
 set_column = "person_id"
 set_value = 125
 cond_column = "name"
 cond_operator = "="
-cond_value = "Aksel"
+cond_value = "Reggy"
 is_not = False
-
 Table.update_record("person_details", set_column, set_value, cond_column, cond_operator, cond_value, is_not)
+records, columns = Table.select_from_table("person_details",['*'])
+print(tabulate(records, headers=columns))
 
-select_columns = ["*"]
+print("Table Record Selection\n")
+select_columns = ["name","dob"]
 cond_column = "dept_no"
 cond_operator = ">="
 cond_value = 20
 is_not = False
-Table.select_from_table("person_details", select_columns, cond_column, cond_operator, cond_value, is_not)
-'''
+records, columns = Table.select_from_table("person_details", select_columns, cond_column, cond_operator, cond_value,
+                                           is_not)
+print(tabulate(records, headers=columns))

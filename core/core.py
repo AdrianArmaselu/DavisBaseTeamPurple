@@ -437,8 +437,7 @@ class DavisBase:
         return [table_name for table_name in self.tables]
 
     def create_table(self):
-        # create table object
-        # update metadata table
+        Table.create_table(self, table_name)
         pass
 
     def drop_table(self):
@@ -447,6 +446,7 @@ class DavisBase:
         pass
 
     def create_index(self):
+        Index_Btree(self,5)
         pass
 
     def insert(self, table_name: str, args: InsertArgs):
