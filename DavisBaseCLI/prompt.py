@@ -1,5 +1,7 @@
 import re
 
+from core.core import DavisBase, TableColumnsMetadata, data_type_encodings
+
 prompt = "davisql> "
 version = "v1.0"
 isExit = False
@@ -25,6 +27,8 @@ SELECT = "select"
 TABLE = "table"
 INDEX = "index"
 
+davis_base = DavisBase()
+
 
 # Method to display the splash screen
 def splashScreen():
@@ -37,7 +41,6 @@ def splashScreen():
 
 # Method to parse table name and column information such as its datatype, constraints from the query
 def parseCreateTable(tableName, columnInformationString):
-    print("Table name: " + tableName)
     parsedColumnInfoList = []
     for columnInfo in columnInformationString:
         parsedColumnInfoMap = {"columnName": None, "dataType": None, "isUnique": False,
@@ -51,7 +54,13 @@ def parseCreateTable(tableName, columnInformationString):
         parsedColumnInfoMap["columnName"] = columnInfo.split(" ")[0]
         parsedColumnInfoMap["dataType"] = columnInfo.split(" ")[1]
         parsedColumnInfoList.append(parsedColumnInfoMap)
-    print(str(parsedColumnInfoList))
+
+    metadata = {}
+    for column in parsedColumnInfoList:
+        metadata[column['columnName']] =data_type_encodings[column['dataType'].upper()]
+    print("columns", metadata)
+    davis_base.create_table(tableName, TableColumnsMetadata(metadata))
+    # print(str(parsedColumnInfoList))
 
 
 # Method to parse table name, list of columns and values to be inserted for those columns
@@ -63,7 +72,7 @@ def parseInsert(commandTokens):
 
 
 # Stub method to handle the actions of insert based on table name and column value mapping
-def insertHandler(tableName, valueList, columnList=None ):
+def insertHandler(tableName, valueList, columnList=None):
     print("Table name: " + tableName)
     print("Value list: " + str(valueList))
     print("Column list: " + str(columnList))
@@ -149,12 +158,11 @@ def selectHandler(columnNames, tableName, condition1=None, operator=None, condit
 
 # Perform actions to drop a table, given its name.
 def dropTableHandler(tableToBeDropped):
-    print("Table Name: " + tableToBeDropped)
-
+    davis_base.drop_table(tableToBeDropped)
 
 # Display all tables present in Davisbase
 def showTablesHandler():
-    print("Show table handler")
+    print(davis_base.show_tables())
 
 
 # Method to create index based on table name
@@ -212,7 +220,6 @@ def parseUserCommand(queryString):
 
     # DDL Cases
     elif commandType == CREATE:
-        print("create path")
         createType = queryString.split(" ")[1]
         if createType == TABLE:
             tableName = queryString.replace(";", "").split(" ")[2]
@@ -224,11 +231,9 @@ def parseUserCommand(queryString):
         else:
             print(ERROR)
     elif commandType == DROP:
-        print("drop path")
         tableToBeDropped = queryString.replace(";", "").split(" ")[-1]
         dropTableHandler(tableToBeDropped)
     elif commandType == SHOW:
-        print("show path")
         showTablesHandler()
 
     # Miscellaneous commands'
@@ -249,6 +254,7 @@ def main():
         queryString = input(prompt).strip().lower()
         parseUserCommand(queryString)
     print("\nExiting...")
+    davis_base.commit()
 
 
 if __name__ == "__main__":
