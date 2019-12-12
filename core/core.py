@@ -1,4 +1,4 @@
-from typing import AnyStr, List, Dict, Generic, TypeVar
+from typing import AnyStr, List, Dict
 from io import BytesIO
 import os
 import math
@@ -27,6 +27,11 @@ data_types = {
     11: "DATE",
     12: "TEXT",
 }
+
+
+def is_int(data_type: int) -> bool:
+    return 0 < data_types[data_type] < 5
+
 
 data_type_encodings = {v: k for k, v in data_types.items()}
 
@@ -57,22 +62,6 @@ class DavisBaseSerializable:
         pass
 
 
-class Condition:
-    def __init__(self, column_name: str, operator: str, value: str):
-        self.column_name: str = column_name
-        self.operator: str = operator
-        self.value: str = value
-
-    def is_satisfied(self, value: str):
-        return {
-            "=": lambda a, b: a == b,
-            ">": lambda a, b: a > b,
-            ">=": lambda a, b: a >= b,
-            "<": lambda a, b: a < b,
-            "<=": lambda a, b: a <= b
-        }[self.operator](value, self.value)
-
-
 class TableColumnsMetadata:
     def __init__(self, columns=None):
         if columns is None:
@@ -80,35 +69,8 @@ class TableColumnsMetadata:
         self.columns: Dict = columns
 
     def data_types(self) -> List[int]:
+        log_debug("CONVERTING TO DATA TYPES", data_type_encodings, self.columns)
         return [data_type_encodings[column_type_index] for column_name, column_type_index in self.columns.items()]
-
-
-class CreateArgs:
-    def __init__(self, columns_metadata: TableColumnsMetadata):
-        self.columns_metadata: TableColumnsMetadata = columns_metadata
-
-
-class InsertArgs:
-    def __init__(self, record: List):
-        self.record: List = record
-
-
-class UpdateArgs:
-    def __init__(self, column_name: str, value, condition):
-        self.column_name: str = column_name
-        self.value = value
-        self.condition = condition
-
-
-class DeleteArgs:
-    def __init__(self):
-        pass
-
-
-class SelectArgs:
-    def __init__(self, column_names: List[str], condition: Condition = None):
-        self.column_names: List[str] = column_names
-        self.condition: Condition = condition
 
 
 def value_to_bytes(value: str or int, value_byte_size: int) -> AnyStr:
@@ -131,6 +93,9 @@ class Record(DavisBaseSerializable):
     def __init__(self, record_data_types: List[int], values: List[str or int]):
         self.data_types: List[int] = record_data_types
         self.values: List[str or int] = values
+
+    def get_value(self, column_index: int) -> str or int:
+        return self.values[column_index]
 
     def size(self) -> int:
         return self.header_size() + self.body_size()
@@ -181,10 +146,23 @@ class InternalCell(PageCell):
         return int_to_bytes(self.left_child_page) + int_to_bytes(self.row_id)
 
 
+class UpdateArgs:
+    def __init__(self, column_index: int, value, condition):
+        self.column_index: int = column_index
+        self.value = value
+        self.condition = condition
+
+
 class LeafCell(PageCell):
     def __init__(self, row_id: int, record: Record = None):
         super(LeafCell, self).__init__(row_id)
         self.record: Record = record
+
+    def values(self) -> List[str or int]:
+        return self.record.values
+
+    def get_value_from_index(self, column_index: int) -> str or int:
+        return self.record.get_value(column_index)
 
     def size(self) -> int:
         return leaf_cell_header_size() + self.payload_size()
@@ -206,17 +184,79 @@ class LeafCell(PageCell):
             .format(self.row_id, self.size(), self.record, self.as_bytes(), self.header_bytes(), self.payload())
 
 
+class Condition:
+    def __init__(self, column_index: int, operator: str, value: str):
+        self.column_index: int = column_index
+        self.operator: str = operator
+        self.value: str or int = value
+
+    def is_satisfied(self, cell: LeafCell):
+        if isinstance(self.value, str):
+            log_debug("casting to int")
+            self.value = int(self.value)
+        result = {
+            "=": lambda a, b: a == b,
+            ">": lambda a, b: a > b,
+            ">=": lambda a, b: a >= b,
+            "<": lambda a, b: a < b,
+            "<=": lambda a, b: a <= b
+        }[self.operator](cell.get_value_from_index(self.column_index), self.value)
+        log_debug("IS SATISFIED", result, self.operator, self.value, cell.get_value_from_index(self.column_index), cell)
+        log_debug("IS SATISFIED", type(self.value), type(cell.get_value_from_index(self.column_index)), cell)
+        return result
+
+
+class CreateArgs:
+    def __init__(self, columns_metadata: TableColumnsMetadata):
+        self.columns_metadata: TableColumnsMetadata = columns_metadata
+
+
+class DeleteArgs:
+    def __init__(self, condition: Condition):
+        self.condition: Condition = condition
+
+
+class SelectArgs:
+    def __init__(self, column_names: List[str], condition: Condition = None):
+        self.column_names: List[str] = column_names
+        self.condition: Condition = condition
+
+
 class TablePage(DavisBaseSerializable):
-    def __init__(self, page_number: int, page_parent: int, cells: Dict = None):
+    def __init__(self, page_number: int, page_parent: int, cells: Dict[int, PageCell]):
         self.page_number: int = page_number
         self.page_parent: int = page_parent
-        if cells is None:
-            cells = {}
-        self.cells: Dict = cells
+        self.cells: Dict[int, PageCell] = cells
+
+    def add_cell(self, row_id: int, cell: PageCell):
+        self.cells[row_id] = cell
 
     # abstract function
-    def insert_record(self, row_id: int, record: Record):
+    def add_record(self, row_id: int, record: Record):
         pass
+
+    # abstract function
+    def delete(self, args: DeleteArgs):
+        pass
+
+    # abstract function
+    def update(self, args: UpdateArgs):
+        pass
+
+    def remove_record(self, row_id: int):
+        del self.cells[row_id]
+
+    # abstract function
+    def values(self) -> List[str or int]:
+        pass
+
+    # abstract function
+    def add_values(self, row_id: int, data_types: List[int], values: List[str or int]):
+        pass
+
+    # abstract function
+    def row_count(self) -> int:
+        return len(self.cells)
 
     # abstract function
     def is_full(self):
@@ -232,10 +272,39 @@ class TablePage(DavisBaseSerializable):
 class TableLeafPage(TablePage):
     PAGE_TYPE = 13
 
-    def insert_record(self, row_id: int, record: Record):
+    def __init__(self, page_number: int, page_parent: int, cells=None):
+        super(TableLeafPage, self).__init__(page_number=page_number, page_parent=page_parent, cells=cells)
+        if cells is None:
+            cells = {}
+        self.cells: Dict[int, LeafCell] = cells
+
+    def delete(self, args: DeleteArgs):
+        log_debug("BEFORE DELETE", self.cells)
+        row_ids_to_be_deleted = []
+        for row_id in self.cells:
+            if args.condition.is_satisfied(self.cells[row_id]):
+                row_ids_to_be_deleted.append(row_id)
+        log_debug("deleting rows", row_ids_to_be_deleted, self.cells)
+        for row_id in row_ids_to_be_deleted:
+            del self.cells[row_id]
+
+    def update(self, args: UpdateArgs):
+        for row_id in self.cells:
+            if args.condition.is_satisfied(self.cells[row_id]):
+                self.cells[row_id].record.values[args.column_index] = args.value
+
+    def values(self) -> List[str or int]:
+        return [self.cells[row_id].values() for row_id in self.cells]
+
+    def add_record(self, row_id: int, record: Record):
         self.cells[row_id] = LeafCell(row_id, record)
-        print(self.cells.items())
-        print(row_id, LeafCell(row_id, record))
+
+    def add_values(self, row_id: int, data_types: List[int], values: List[str or int]):
+        log_debug("ADD VALUE ", row_id, data_types, values)
+        self.cells[row_id] = LeafCell(row_id, Record(data_types, values))
+
+    def get_column_values(self, column_index: int) -> List[str or int]:
+        return [self.cells[row_id].get_value_from_index(column_index) for row_id in self.cells]
 
     def add_cell(self, row_id: int, cell: LeafCell = None):
         self.cells[row_id] = cell
@@ -285,98 +354,58 @@ class TableLeafPage(TablePage):
             .format(parent, self.header_size(), self.payload_size(), self.header_bytes(), self.payload(), cells)
 
 
-# Abstract class
-class AbstractTableModel:
-    def as_list(self) -> List[TablePage]:
-        pass
-
-    def add_pages(self, page: List[TablePage]):
-        pass
-
-    def insert(self, row_id: int, args: InsertArgs):
-        pass
-
-    def update(self, args: UpdateArgs):
-        pass
-
-    def delete(self, args):
-        pass
-
-    def select(self, args) -> Dict[int, PageCell]:
-        pass
-
-
 def resize_text_data_types(data_types: List[int], record: List[int or str]):
     return [data_types[i] if data_types[i] < 12 else len(record[i]) + 12 for i in range(len(data_types))]
-
-
-class ListTableModel(AbstractTableModel):
-    def __init__(self, columns_metadata: TableColumnsMetadata, pages=None):
-        print("model pages", pages)
-        if pages is None or len(pages) == 0:
-            print("init pages")
-            pages = [TableLeafPage(page_number=0, page_parent=0)]
-        self.pages: List[TablePage] = pages
-        self.current_page: int = 0 if len(self.pages) == 0 else len(self.pages) - 1
-        self.columns_metadata: TableColumnsMetadata = columns_metadata
-
-    def as_list(self) -> List[TablePage]:
-        return self.pages
-
-    def insert(self, row_id: int, args: InsertArgs):
-        if self.pages[self.current_page].is_full():  # is full or is above full with the new element
-            self.pages.append(TableLeafPage(self.current_page + 1, 0))
-            self.current_page += 1
-        self.pages[self.current_page].insert_record(row_id, Record(resize_text_data_types(self.columns_metadata.data_types(), args.record), args.record))
-        print()
-
-    def update(self, args: UpdateArgs):
-        pass
-
-    def select(self, args: SelectArgs) -> Dict[int, PageCell]:
-        records = {}
-        for page in self.pages:
-            records.update(page.cells)
-        return records
-
-    def delete(self, args: DeleteArgs):
-        pass
-
-    def __str__(self) -> str:
-        return str(self.pages)
 
 
 class DavisTable(DavisBaseSerializable):
     def __init__(self, name: str, columns_metadata: TableColumnsMetadata = None, pages=None):
         self.name: str = name
-        self.model: AbstractTableModel = ListTableModel(columns_metadata, pages)
-        self.current_row_id: int = 0
         self.columns_metadata: TableColumnsMetadata = columns_metadata
+        if not pages:
+            pages = [TableLeafPage(0, 0)]
+        self.pages: List[TablePage] = pages
+        self.current_row_id: int = len(self.pages) - 1
 
-    def insert(self, args: InsertArgs):
-        self.model.insert(self.current_row_id, args)
-        self.current_row_id += 1
+    def values(self):
+        print("TableLeafPage DavisTable", [page.values() for page in self.pages])
+        return [page.values() for page in self.pages]
 
-    def add_pages(self, pages: List[TablePage]):
-        self.model.add_pages(pages)
+    def row_count(self):
+        return sum([page.row_count() for page in self.pages])
+
+    def select(self, args: SelectArgs) -> List[str or int]:
+        return flatten([page.values() for page in self.pages])
+
+    def current_page(self) -> TablePage:
+        return self.pages[len(self.pages) - 1]
+
+    def insert(self, rows: List[List[str or int]], column_names: List[str] = None):
+        if self.current_page().is_full():
+            self.pages.append(TableLeafPage(len(self.pages), 0))
+
+        for row in rows:
+            self.current_page().add_values(self.current_row_id,
+                                           resize_text_data_types(self.columns_metadata.data_types(), row),
+                                           row)
+            self.current_row_id += 1
 
     def update(self, args: UpdateArgs):
-        self.model.update(args)
-
-    def select(self, args: SelectArgs) -> Dict[int, PageCell]:
-        return self.model.select(args)
+        for page in self.pages:
+            page.update(args)
 
     def delete(self, args: DeleteArgs):
-        self.model.delete(args)
+        for page in self.pages:
+            page.delete(args)
 
     def as_bytes(self) -> bytes:
         content = b''
-        for page in self.model.as_list():
+        for page in self.pages:
             content += page.as_bytes()
         return content
 
     def __str__(self) -> str:
-        return str(self.model)
+        return str(self.pages)
 
 
 class DavisIndex(DavisBaseSerializable):
@@ -443,7 +472,6 @@ class PageReader:
                 left_child_page_number = self.read_int()
                 row_id = self.read_int()
                 # table.add_cell(row_id, LeafCell(row_id, Record(data_types, values)))
-        print(" read page ", page.as_bytes())
         return page
 
 
@@ -508,6 +536,17 @@ class DavisBaseFS:
             log_debug("catalog table not found", name)
         return []
 
+    def read_storage_table(self, name):
+        path = self.storage_folder_path() + '/' + name + ".tbl"
+        if os.path.isfile(path):
+            log_debug("storage table found, reading ", name)
+            pages = TableFile(os.path.abspath(path)).read_pages()
+            log_debug("pages read", pages)
+            return pages
+        else:
+            log_debug("storage table not found", name)
+        return []
+
     def read_tables_table(self) -> List[TablePage]:
         return self.read_catalog_table('davisbase_table')
 
@@ -519,9 +558,6 @@ class DavisBaseFS:
 
     def write_columns_table(self, table: DavisTable):
         return self.write_catalog_table(table)
-
-    def get_table(self, name: str):
-        pass
 
     def write_data_table(self, table: DavisTable):
         path = self.storage_folder_path() + '/' + table.name + ".tbl"
@@ -556,6 +592,10 @@ class DavisBase:
         "is_nullable": "TEXT"
     }
 
+    TEST = {
+        "v1": "INT"
+    }
+
     def __init__(self):
         self.tables: Dict[str, DavisTable] = {}
         self.indexes = {}
@@ -563,76 +603,97 @@ class DavisBase:
 
         log_debug("reading catalog tables table")
         table_pages = self.fs.read_tables_table()
-        self.tables_table = DavisTable('davisbase_table', TableColumnsMetadata(self.TABLES_TABLE_COLUMN_METADATA), table_pages)
-        self.tables_table.current_row_id = 2
-        # print("TABLE BYTES", self.tables_table.as_bytes())
-        # print("TABLE CONTENT", self.tables_table.model.as_list())
-        # print("TABLE pages", len(self.tables_table.model.as_list()))
-        # print("TABLE pages", self.tables_table.model.as_list()[0].payload_size())
-        if not table_pages:
-            self.tables_table.insert(InsertArgs(record=[0, 'davisbase_tables']))
-            self.tables_table.insert(InsertArgs(record=[1, 'davisbase_columns']))
-            self.tables_table.current_row_id = 2
+        tables_metadata = TableColumnsMetadata(self.TABLES_TABLE_COLUMN_METADATA)
+        self.davisbase_tables = DavisTable('davisbase_table', tables_metadata, table_pages)
+        if self.davisbase_tables.row_count() == 0:
+            self.davisbase_tables.insert([[1, 'davisbase_tables'], [2, 'davisbase_columns']])
+        self.davisbase_tables.current_row_id = self.davisbase_tables.row_count() + 1
+        result = self.davisbase_tables.select(SelectArgs(['rowid', 'table_name']))
+        log_debug('TABLES', result)
 
-        # log_debug("reading catalog columns table")
-        # columns_pages = self.fs.read_columns_table()
-        # self.columns_table = DavisTable('davisbase_columns', TableColumnsMetadata(self.TABLES_TABLE_COLUMN_METADATA))
-        # self.columns_table.add_pages(columns_pages)
+        log_debug("reading catalog columns table")
+        columns_pages = self.fs.read_columns_table()
+        columns_metadata = TableColumnsMetadata(self.TABLES_TABLE_COLUMN_METADATA)
+        self.davisbase_columns = DavisTable('davisbase_columns', columns_metadata, columns_pages)
+        if self.davisbase_columns.row_count() == 0:
+            self.davisbase_columns.insert([
+                [1, 'davis_tables', 'rowid', 'INT', 1, 'NO'],
+                [2, 'davis_tables', 'table_name', 'TEXT', 2, 'NO'],
+                [3, 'davisbase_columns', 'rowid', 'INT', 1, 'NO'],
+                [4, 'davisbase_columns', 'table_name', 'TEXT', 2, 'NO'],
+                [5, 'davisbase_columns', 'column_name', 'TEXT', 3, 'NO'],
+                [6, 'davisbase_columns', 'data_type', 'TEXT', 4, 'NO'],
+                [7, 'davisbase_columns', 'ordinal_position', 'TINYINT', 5, 'NO'],
+                [8, 'davisbase_columns', 'is_nullable', 'TEXT', 6, 'NO']])
+        result = self.davisbase_columns.select(SelectArgs(['rowid', 'table_name']))
+        log_debug('COLUMNS', result)
 
-        result = self.tables_table.select(SelectArgs(['rowid', 'table_name']))
-        print(result[0].record)
-        # if not columns_pages:
-        #     self.tables_table.insert(InsertArgs(record=[3, 3]))
+        self.create_table('t1', TableColumnsMetadata(self.TEST))
+        self.tables['t1'].insert([[1]])
+        log_debug("CREATED TABLES", self.tables)
+        result = self.tables['t1'].select(SelectArgs(['rowid', 'table_name']))
+        log_debug('TABLES t1', result)
 
     def show_tables(self) -> List[str]:
-        return [table_name for table_name in self.tables] + ['davisbase_tables', 'davisbase_columns']
+        rows = self.davisbase_tables.select(SelectArgs(['rowid', 'table_name']))
+        return [row[1] for row in rows]
 
     def create_table(self, name: str, columns_metadata: TableColumnsMetadata) -> DavisTable:
         table = DavisTable(name, columns_metadata)
-        self.fs.write_data_table(table)
         self.tables[name] = table
-        self.tables_table.insert(InsertArgs(record=[2, 'name']))
+        self.davisbase_tables.insert([[self.davisbase_tables.current_row_id, name]])
         return table
 
     def drop_table(self, table_name: str):
-        del self.tables[table_name]
-        self.tables_table.delete(DeleteArgs()) # delete from metadata
-        # delete from file
-        # update metadata
+        if table_name in self.tables:
+            del self.tables[table_name]
+        self.davisbase_tables.delete(DeleteArgs(Condition(column_index=1, operator='=', value=table_name)))
+        # delete in columns
+        # delete from file if is on file
         pass
 
     def create_index(self):
         # Index_Btree(self,5)
         pass
 
-    def insert(self, table_name: str, args: InsertArgs):
-        self.tables[table_name].insert(args)
-
-    def update(self, table_name: str, args: UpdateArgs):
-        self.tables[table_name].update(args)
-
-    def select(self, table_name: str, args: SelectArgs):
+    def select(self, table_name: str, args: SelectArgs) -> List[str or int]:
+        self.load_table_if_not_loaded(table_name)
         return self.tables[table_name].select(args)
 
+    def insert(self, table_name: str, rows: List[str or int], column_names: List[str] = None):
+        self.load_table_if_not_loaded(table_name)
+        self.tables[table_name].insert([rows], column_names)
+
+    def update(self, table_name: str, args: UpdateArgs):
+        self.load_table_if_not_loaded(table_name)
+        self.tables[table_name].update(args)
+
     def delete(self, table_name: str, args: DeleteArgs):
+        self.load_table_if_not_loaded(table_name)
         self.tables[table_name].delete(args)
+
+    def load_table_if_not_loaded(self, table_name: str):
+        if table_name not in self.tables:
+            pages = self.fs.read_catalog_table(table_name)
+            table = DavisTable(table_name, TableColumnsMetadata(self.TEST), pages)
+            self.tables[table_name] = table
+        return None
 
     def commit(self):
         log_debug("writing catalog tables table")
-        self.fs.write_tables_table(self.tables_table)
-        # log_debug("writing catalog columns table")
-        # self.fs.write_tables_table(self.columns_table)
+        self.fs.write_tables_table(self.davisbase_tables)
+        log_debug("writing catalog columns table")
+        self.fs.write_tables_table(self.davisbase_columns)
         for table_name in self.tables:
             self.fs.write_data_table(self.tables[table_name])
         for index_name in self.indexes:
             self.fs.write_index(self.indexes[index_name])
         # [open(index.name + '.ndx', 'wb').write(index.to_binary()) for index in self.indexes]
 
+# davis_base = DavisBase()
+# davis_base.commit()
 
-davis_base = DavisBase()
-davis_base.commit()
-
-print(davis_base.show_tables())
+# print(davis_base.show_tables())
 
 # print(LeafCell(0, Record([1, 2], [1, 2])))
 # print(TableLeafPage(0, 0, [1, 2], {0: LeafCell(0, Record([1, 2], [1, 2]))}))

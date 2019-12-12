@@ -1,6 +1,7 @@
 import re
 
-from core.core import DavisBase, TableColumnsMetadata, data_type_encodings
+from core.core import DavisBase, TableColumnsMetadata, data_type_encodings, SelectArgs, Condition, DeleteArgs, \
+    UpdateArgs
 
 prompt = "davisql> "
 version = "v1.0"
@@ -58,7 +59,8 @@ def parseCreateTable(tableName, columnInformationString):
     metadata = {}
     for column in parsedColumnInfoList:
         metadata[column['columnName']] =data_type_encodings[column['dataType'].upper()]
-    print("columns", metadata)
+    # print("table name", tableName)
+    # print("create table metadata", metadata)
     davis_base.create_table(tableName, TableColumnsMetadata(metadata))
     # print(str(parsedColumnInfoList))
 
@@ -76,6 +78,7 @@ def insertHandler(tableName, valueList, columnList=None):
     print("Table name: " + tableName)
     print("Value list: " + str(valueList))
     print("Column list: " + str(columnList))
+    davis_base.insert(tableName, valueList, columnList)
 
 
 # Method to parse table name, condition1, operator and condition2
@@ -83,7 +86,8 @@ def parseDelete(commandTokens):
     condition1 = None
     operator = None
     condition2 = None
-    tableName = commandTokens[3]
+    tableName = commandTokens[2]
+    print("command tokens", commandTokens)
     if "where" in commandTokens:
         condition1 = commandTokens[-3]
         operator = commandTokens[-2]
@@ -99,6 +103,7 @@ def deleteHandler(tableName, condition1=None, operator=None, condition2=None):
         print("Condition 1: " + condition1)
         print("Operator: " + operator)
         print("Condition 2: " + condition2)
+    davis_base.delete(tableName, DeleteArgs(Condition(0, operator, condition2)))
 
 
 # Method to parse table name, column names and values to be updated and condition1, operator and condition2
@@ -118,17 +123,16 @@ def parseUpdate(commandTokens):
     condition1 = commandTokens[-3]
     operator = commandTokens[-2]
     condition2 = commandTokens[-1]
-    updateHandler(updateValuesDictionary, tableName, condition1, operator, condition2)
+    updateHandler(commandTokens)
 
 
 # Stub method to perform update action. Data to be updated is stored as key / value pairs
 # Key refers to the column name and value refer to the updated value for that particular column
-def updateHandler(updateValuesDictionary, tableName, condition1, operator, condition2):
-    print("Column names: " + str(updateValuesDictionary))
-    print("Table names: " + tableName)
-    print("Condition 1: " + condition1)
-    print("Operator: " + operator)
-    print("Condition 2: " + condition2)
+def updateHandler(commandTokens):
+    print("Command Tokens" + str(commandTokens))
+
+    # table name, value,
+    davis_base.update(commandTokens[1], UpdateArgs(0, commandTokens[5], Condition(0, commandTokens[8], commandTokens[9])))
 
 
 # Identifies column names, table name, conditions from the entered query
@@ -148,12 +152,15 @@ def parseSelect(commandTokens):
 # Stub method to perform action based on select command
 # Write your select action here.
 def selectHandler(columnNames, tableName, condition1=None, operator=None, condition2=None):
-    print("Column names: " + str(columnNames))
-    print("Table names: " + tableName)
-    if condition1 and condition2 and operator:
-        print("Condition 1: " + condition1)
-        print("Operator: " + operator)
-        print("Condition 2: " + condition2)
+    # print("Column names: " + str(columnNames))
+    # print("Table names: " + tableName)
+    # if condition1 and condition2 and operator:
+    #     print("Condition 1: " + condition1)
+    #     print("Operator: " + operator)
+    #     print("Condition 2: " + condition2)
+    #  first argument of condition is based on column name, which is condition1
+    result = davis_base.select(tableName, SelectArgs(columnNames, Condition(0, operator, condition2)))
+    print(result)
 
 
 # Perform actions to drop a table, given its name.
@@ -212,7 +219,6 @@ def parseUserCommand(queryString):
     elif commandType == INSERT:
         commandTokens = queryString.replace(", ", ",").replace(";", "").replace("(", "").replace(")", "").split(" ")
         parseInsert(commandTokens)
-        print("insert path")
     elif commandType == DELETE:
         commandTokens = queryString.replace(";", "").split(" ")
         parseDelete(commandTokens)
