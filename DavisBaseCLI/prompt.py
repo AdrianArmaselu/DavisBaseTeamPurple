@@ -77,9 +77,9 @@ def parseInsert(commandTokens):
 
 # Stub method to handle the actions of insert based on table name and column value mapping
 def insertHandler(tableName, valueList, columnList=None):
-    print("Table name: " + tableName)
-    print("Value list: " + str(valueList))
-    print("Column list: " + str(columnList))
+    # print("Table name: " + tableName)
+    # print("Value list: " + str(valueList))
+    # print("Column list: " + str(columnList))
     davis_base.insert(tableName, valueList, columnList)
 
 
@@ -89,7 +89,7 @@ def parseDelete(commandTokens):
     operator = None
     condition2 = None
     tableName = commandTokens[3]
-    print("command tokens", commandTokens)
+    # print("command tokens", commandTokens)
     if "where" in commandTokens:
         condition1 = commandTokens[-3]
         operator = commandTokens[-2]
@@ -100,11 +100,11 @@ def parseDelete(commandTokens):
 # Stub method to perform delete action.
 # Use the given tableName, condition1, operator and condition2 to identify and delete records from the table
 def deleteHandler(tableName, condition1=None, operator=None, condition2=None):
-    print("Table name: " + tableName)
-    if condition1 and condition2 and operator:
-        print("Condition 1: " + condition1)
-        print("Operator: " + operator)
-        print("Condition 2: " + condition2)
+    # print("Table name: " + tableName)
+    # if condition1 and condition2 and operator:
+    #     print("Condition 1: " + condition1)
+    #     print("Operator: " + operator)
+    #     print("Condition 2: " + condition2)
     davis_base.delete(tableName, condition1, operator, condition2)
 
 
@@ -131,7 +131,7 @@ def parseUpdate(commandTokens):
 # Stub method to perform update action. Data to be updated is stored as key / value pairs
 # Key refers to the column name and value refer to the updated value for that particular column
 def updateHandler(commandTokens):
-    print("Command Tokens" + str(commandTokens))
+    # print("Command Tokens" + str(commandTokens))
 
     # table name, value,
     # davis_base.update(commandTokens[1], UpdateArgs(0, commandTokens[5], Condition(0, commandTokens[8], commandTokens[9])))
@@ -149,7 +149,7 @@ def parseSelect(commandTokens):
         condition1 = commandTokens[5]
         operator = commandTokens[6]
         condition2 = commandTokens[7]
-    print (columnNames, tableName, condition1, operator, condition2)
+    # print (columnNames, tableName, condition1, operator, condition2)
     selectHandler(columnNames, tableName, condition1, operator, condition2)
 
 
@@ -162,7 +162,7 @@ def selectHandler(columnNames, tableName, condition1=None, operator=None, condit
     #     print("Condition 1: " + condition1)
     #     print("Operator: " + operator)
     #     print("Condition 2: " + condition2)
-    result = davis_base.select(tableName, columnNames, condition1, operator, condition2)
+    result = davis_base.select(tableName, condition1, operator, condition2, columnNames)
     for r in result:
         print(str([str(c) for c in r]))
 
@@ -213,11 +213,9 @@ def parseUserCommand(queryString):
     global isExit
     # DML Cases
     if commandType == SELECT:
-        print("select path")
         commandTokens = queryString.replace(", ", ",").replace(";", "").split(" ")
         parseSelect(commandTokens)
     elif commandType == UPDATE:
-        print("update path")
         commandTokens = queryString.replace(",", "").replace(";", "").split(" ")
         parseUpdate(commandTokens)
     elif commandType == INSERT:
@@ -226,7 +224,6 @@ def parseUserCommand(queryString):
     elif commandType == DELETE:
         commandTokens = queryString.replace(";", "").split(" ")
         parseDelete(commandTokens)
-        print("delete path")
 
     # DDL Cases
     elif commandType == CREATE:
@@ -259,11 +256,16 @@ def parseUserCommand(queryString):
 
 # Entry point of application. Runs until exit or quit command is entered.
 def main():
+
     splashScreen()
     while not isExit:
         queryString = input(prompt).strip().lower()
-        parseUserCommand(queryString)
+        try:
+            parseUserCommand(queryString)
+        except:
+            print("Error while running statement", e)
     print("\nExiting...")
+
     davis_base.commit()
 
 

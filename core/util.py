@@ -2,7 +2,7 @@ from typing import AnyStr, List
 
 from core.datum import Null, TinyInt, SmallInt, Int, Long, Float, Double, Year, Time, DateTime, Date, Text
 
-IS_DEBUG_LOGGING_ENABLED = True
+IS_DEBUG_LOGGING_ENABLED = False
 
 
 def disable_debugging_logs():
@@ -69,16 +69,12 @@ def int_to_bytes(number: int, size: int = 4) -> AnyStr:
 
 
 def get_column_size(column_type: int) -> int:
-    return {0: 0, 1: 1, 2: 2, 3: 4, 4: 8, 5: 4, 6: 8, 8: 1, 9: 4, 10: 8, 11: 8}[column_type] \
-        if column_type < 12 else column_type - 12
+    return {0: 0, 1: 1, 2: 2, 3: 4, 4: 8, 5: 4, 6: 8, 7: 1, 8: 4, 9: 8, 10: 8}[column_type] \
+        if column_type < 11 else column_type - 11
 
 
 def value_to_bytes(value: str or int, value_byte_size: int) -> AnyStr:
     return bytes(value, 'utf-8') if isinstance(value, str) else int_to_bytes(value, value_byte_size)
-
-
-def bytes_to_value(value_bytes: AnyStr, column_type: int) -> str or int:
-    return bytes_to_int(value_bytes) if column_type < 12 else value_bytes.decode("utf-8")
 
 
 def leaf_cell_header_size():

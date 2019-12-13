@@ -91,7 +91,31 @@ class FileIoTests(unittest.TestCase):
 
     def test_davis_base(self):
         davis_base = DavisBase()
-        print(davis_base.show_tables())
+
+        davis_base.create_table("t3", TableColumnsMetadata({"a": ColumnDefinition("INT", 0),
+                                                            "b": ColumnDefinition("FLOAT", 1),
+                                                            "c": ColumnDefinition("TEXT", 2),
+                                                            }))
+        davis_base.show_tables()
+
+        davis_base.insert("t3", ['99', '22.3', 'THIS'], ["a", "b", "c"])
+        davis_base.insert("t3", ['299', '9.9', 'IS'], ["a", "b", "c"])
+        davis_base.insert("t3", ['799', '3.4', 'AWESOME'], ["a", "b", "c"])
+
+        result = davis_base.select("t3", ["a", "b", "c"], "b" , ">=", "0")
+        for r in result:
+            print([str(c) for c in r])
+
+        davis_base.update("t3", "a", "300", "b", "=", "9.9")
+
+        result = davis_base.select("t3", ["a", "b", "c"], "b", ">=", "0")
+        for r in result:
+            print([str(c) for c in r])
+
+        davis_base.delete("t3", "c", "=", "AWESOME")
+        result = davis_base.select("t3", ["*"], "b", ">=", "0")
+        for r in result:
+            print([str(c) for c in r])
         # davis_base.create_table('test', TableColumnsMetadata(
         #     {"rowid": ColumnDefinition("INT", 0), "table_name": ColumnDefinition("TEXT", 1)}))
         # davis_base.insert('test', ['0', 't1'])
@@ -107,12 +131,10 @@ class FileIoTests(unittest.TestCase):
         # for r in result:
         #     print([str(c) for c in r])
 
-
         pass
 
     def test_davis_base_read(self):
         davis_base = DavisBase()
-
 
     def empty_database_init(self):
         pass

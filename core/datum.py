@@ -144,6 +144,12 @@ class Long(Int):
 
 
 class Float(Number):
+    def __init__(self, value: int or float or bytes or str):
+        super(Number, self).__init__(value)
+        if isinstance(value, bytes):
+            v= struct.unpack('f', value)
+            self.value: float = v[0]
+
     def from_str(self, value: str) -> float:
         return float(value)
 
@@ -158,6 +164,12 @@ class Float(Number):
 
 
 class Double(Number):
+
+    def __init__(self, value: int or float or bytes or str):
+        super(Number, self).__init__(value)
+        if isinstance(value, bytes):
+            self.value: int or float = struct.unpack('d', value)
+
     def get_type_number(self) -> int:
         return 6
 
