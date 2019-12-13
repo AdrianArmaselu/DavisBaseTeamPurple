@@ -1,7 +1,7 @@
 import re
 
-from core.core import DavisBase, TableColumnsMetadata, data_type_encodings, SelectArgs, Condition, DeleteArgs, \
-    UpdateArgs
+from core.model import DavisBase, TableColumnsMetadata, data_type_encodings, SelectArgs, Condition, DeleteArgs, \
+    UpdateArgs, ColumnDefinition
 
 prompt = "davisql> "
 version = "v1.0"
@@ -57,8 +57,10 @@ def parseCreateTable(tableName, columnInformationString):
         parsedColumnInfoList.append(parsedColumnInfoMap)
 
     metadata = {}
+    index = 0;
     for column in parsedColumnInfoList:
-        metadata[column['columnName']] =data_type_encodings[column['dataType'].upper()]
+        metadata[column['columnName']] = ColumnDefinition(column['dataType'].upper(),index)
+        index += 1
     # print("table name", tableName)
     # print("create table metadata", metadata)
     davis_base.create_table(tableName, TableColumnsMetadata(metadata))
@@ -86,7 +88,7 @@ def parseDelete(commandTokens):
     condition1 = None
     operator = None
     condition2 = None
-    tableName = commandTokens[2]
+    tableName = commandTokens[3]
     print("command tokens", commandTokens)
     if "where" in commandTokens:
         condition1 = commandTokens[-3]
@@ -103,7 +105,7 @@ def deleteHandler(tableName, condition1=None, operator=None, condition2=None):
         print("Condition 1: " + condition1)
         print("Operator: " + operator)
         print("Condition 2: " + condition2)
-    davis_base.delete(tableName, DeleteArgs(Condition(0, operator, condition2)))
+    davis_base.delete(tableName, condition1, operator, condition2)
 
 
 # Method to parse table name, column names and values to be updated and condition1, operator and condition2
@@ -132,7 +134,8 @@ def updateHandler(commandTokens):
     print("Command Tokens" + str(commandTokens))
 
     # table name, value,
-    davis_base.update(commandTokens[1], UpdateArgs(0, commandTokens[5], Condition(0, commandTokens[8], commandTokens[9])))
+    # davis_base.update(commandTokens[1], UpdateArgs(0, commandTokens[5], Condition(0, commandTokens[8], commandTokens[9])))
+    davis_base.update(commandTokens[1], commandTokens[3], commandTokens[5], commandTokens[7], commandTokens[8], commandTokens[9])
 
 
 # Identifies column names, table name, conditions from the entered query
@@ -146,6 +149,7 @@ def parseSelect(commandTokens):
         condition1 = commandTokens[5]
         operator = commandTokens[6]
         condition2 = commandTokens[7]
+    print (columnNames, tableName, condition1, operator, condition2)
     selectHandler(columnNames, tableName, condition1, operator, condition2)
 
 
@@ -158,9 +162,9 @@ def selectHandler(columnNames, tableName, condition1=None, operator=None, condit
     #     print("Condition 1: " + condition1)
     #     print("Operator: " + operator)
     #     print("Condition 2: " + condition2)
-    #  first argument of condition is based on column name, which is condition1
-    result = davis_base.select(tableName, SelectArgs(columnNames, Condition(0, operator, condition2)))
-    print(result)
+    result = davis_base.select(tableName, columnNames, condition1, operator, condition2)
+    for r in result:
+        print(str([str(c) for c in r]))
 
 
 # Perform actions to drop a table, given its name.
@@ -169,7 +173,7 @@ def dropTableHandler(tableToBeDropped):
 
 # Display all tables present in Davisbase
 def showTablesHandler():
-    print(davis_base.show_tables())
+    davis_base.show_tables()
 
 
 # Method to create index based on table name
